@@ -1,0 +1,43 @@
+ARM6502 revision history
+-=-=-=-=-=-=-=-=-=-=-=-=-
+
+
+V0.3.5 - 2024-07-27 (FluBBa)
+	Fixed page crossing taking extra cycles.
+
+V0.3.1 - 2023-11-05 (FluBBa)
+	Fixed m6502RunXCyclesC function.
+	Optimized delayed IRQ check.
+
+V0.3.0 - 2023-06-05 (FluBBa)
+	Removed allocated cpu core, added init function.
+	Fixed PHP, PLP, BRK & JMP(nnnn).
+	Optimzed zero page indirect opcodes.
+	Optimized IRQ check a tiny bit.
+	Added patch opcode function.
+	Added support for 6510.
+
+V0.2.1 - 2022-09-20 (FluBBa)
+	Fixed better calling conventions.
+	Added defines for not using fast memory.
+
+V0.2.0 - 2022-09-17 (FluBBa)
+	Added 65C02 opcodes.
+	Added support for RP2A03 (no decimal mode).
+
+V0.1.5 - 2021-02-28 (FluBBa)
+	Added load/save state.
+	Better support for decimal mode.
+	Removed dependency on cpu2Ram.
+	Removed unneccesary space in state.
+
+V0.1.2 - 2018-05-11 (FluBBa)
+	Now runs code correctly.
+
+V0.1.1 - 2018-05-07 (FluBBa)
+	Added back jump table.
+	Added unoffical opcodes.
+	Removed unused opcodes.
+
+V0.1.0 - 2018-04-22 (FluBBa)
+	Forked from ARMH6280.

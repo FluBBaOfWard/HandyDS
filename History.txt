@@ -1,0 +1,5 @@
+HandyDS revision history
+-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+V0.0.1 - 2024-09-19 (FluBBa)
+	Started coding on NDS version.
