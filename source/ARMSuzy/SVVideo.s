@@ -27,8 +27,6 @@ svRefW:						;@ 0x2001, Last scan line.
 	mov r0,r1
 	b setScreenRefresh
 
-	bl memRead8
-
 lineStateLastLine:
 	.long 160
 

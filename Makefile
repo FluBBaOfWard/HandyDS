@@ -27,7 +27,6 @@ BUILD		:=	build
 SOURCES		:=	source \
 				source/Shared \
 				source/Shared/Unzip \
-				source/ARM6502 \
 				source/ARMSuzy \
 				source/handy
 DATA		:=	data

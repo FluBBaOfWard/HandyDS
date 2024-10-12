@@ -255,10 +255,10 @@ void CSystem::Reset(void)
 	gAudioBufferPointer = 0;
 	gAudioLastUpdateCycle = 0;
 //	memset(gAudioBuffer, 128, HANDY_AUDIO_BUFFER_SIZE);
-	memset(gAudioBuffer0, 128, HANDY_AUDIO_BUFFER_SIZE);
-	memset(gAudioBuffer1, 128, HANDY_AUDIO_BUFFER_SIZE);
-	memset(gAudioBuffer2, 128, HANDY_AUDIO_BUFFER_SIZE);
-	memset(gAudioBuffer3, 128, HANDY_AUDIO_BUFFER_SIZE);
+//	memset(gAudioBuffer0, 128, HANDY_AUDIO_BUFFER_SIZE);
+//	memset(gAudioBuffer1, 128, HANDY_AUDIO_BUFFER_SIZE);
+//	memset(gAudioBuffer2, 128, HANDY_AUDIO_BUFFER_SIZE);
+//	memset(gAudioBuffer3, 128, HANDY_AUDIO_BUFFER_SIZE);
 
 #ifdef _LYNXDBG
 	gSystemHalt = TRUE;
