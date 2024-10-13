@@ -1,27 +1,35 @@
-//////////////////////////////////////////////////////////////////////////////
-//                       Handy - An Atari Lynx Emulator                     //
-//                          Copyright (c) 1996,1997                         //
-//                              Keith Wilkins                               //
-//////////////////////////////////////////////////////////////////////////////
-// Mikey chip emulation class                                               //
-//////////////////////////////////////////////////////////////////////////////
-//                                                                          //
-// This class emulates all of the Mikey hardware with the exception of the  //
-// CPU and memory selector. Update() does most of the work and does screen  //
-// DMA and counter updates, it also schecules in which cycle the next timer //
-// update will occur so that the CSystem->Update() doesnt have to call it   //
-// every cycle, massive speedup but big complexity headache.                //
-//                                                                          //
-// Keith Wilkins                                                            //
-// August 1997                                                              //
-//                                                                          //
-//////////////////////////////////////////////////////////////////////////////
-// Revision History:                                                        //
-// -----------------                                                        //
-//                                                                          //
-// 01Aug1997 KW Document header added & class documented.                   //
-//                                                                          //
-//////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+//                       Handy DS - An Atari Lynx Emulator                     //
+//                                                                             //
+//                          Based upon Handy/SDL v0.5                          //
+//                             Copyright (c) 2005                              //
+//                                SDLemu Team                                  //
+//                          Based upon Handy v0.95 WIN32                       //
+//                            Copyright (c) 1996,1997                          //
+//                                  K. Wilkins                                 //
+/////////////////////////////////////////////////////////////////////////////////
+//                                                                             //
+// Copyright (c) 2004 SDLemu Team                                              //
+//                                                                             //
+// This software is provided 'as-is', without any express or implied warranty. //
+// In no event will the authors be held liable for any damages arising from    //
+// the use of this software.                                                   //
+//                                                                             //
+// Permission is granted to anyone to use this software for any purpose,       //
+// including commercial applications, and to alter it and redistribute it      //
+// freely, subject to the following restrictions:                              //
+//                                                                             //
+// 1. The origin of this software must not be misrepresented; you must not     //
+//    claim that you wrote the original software. If you use this software     //
+//    in a product, an acknowledgment in the product documentation would be    //
+//    appreciated but is not required.                                         //
+//                                                                             //
+// 2. Altered source versions must be plainly marked as such, and must not     //
+//    be misrepresented as being the original software.                        //
+//                                                                             //
+// 3. This notice may not be removed or altered from any source distribution.  //
+//                                                                             //
+/////////////////////////////////////////////////////////////////////////////////
 
 #define MIKIE_CPP
 
@@ -34,12 +42,7 @@
 
 void CMikie::BlowOut(void)
 {
-//	CString addr;
-	C6502_REGS regs;
-	mSystem.GetRegs(regs);
-//	addr.Format("CMikie::Poke() - Read/Write to counter clocks at PC=$%04x.",regs.PC);
-//	::MessageBox(NULL,addr,"Runtime Error - System Halted", MB_OK | MB_ICONERROR);
-	printf("CMikie::Poke() - Read/Write to counter clocks at PC=$%04x.\n",regs.PC);
+	TRACE_MIKIE1("CMikie::Poke() - Read/Write to counter clocks at PC=$%04x.\n",mSystem.mCpu->GetPC());
 	gSystemHalt = TRUE;
 }
 
@@ -47,20 +50,31 @@ void CMikie::BlowOut(void)
 CMikie::CMikie(CSystem& parent)
 	:mSystem(parent)
 {
+	TRACE_MIKIE0("CMikie()");
+
+	mpRamPointer = NULL;
+
+	mpDisplayCallback = NULL;
+	mpRenderCallback = NULL;
+
+	mUART_CABLE_PRESENT = FALSE;
+	mpUART_TX_CALLBACK = NULL;
+
 	int loop;
 	for (loop=0;loop<16;loop++) mPalette[loop].Index = loop;
 
 	Reset();
 }
 
-
 CMikie::~CMikie()
 {
+	TRACE_MIKIE0("~CMikie()");
 }
-
 
 void CMikie::Reset(void)
 {
+	TRACE_MIKIE0("Reset()");
+
 	mAudioInputComparator = FALSE;	// Initialises to unknown
 	mDisplayAddress = 0x00;			// Initialises to unknown
 	mLynxLine = 0;
@@ -70,7 +84,7 @@ void CMikie::Reset(void)
 	mTimerStatusFlags = 0x00;		// Initialises to ZERO, i.e No IRQ's
 	mTimerInterruptMask = 0x00;
 
-	mRamPointer = mSystem.GetRamPointer();	// Fetch pointer to system RAM
+	mpRamPointer = mSystem.GetRamPointer();	// Fetch pointer to system RAM
 
 	mCurrentBuffer = 0;
 
@@ -98,148 +112,147 @@ void CMikie::Reset(void)
 	mTIM_1_LAST_LINK_CARRY = 0;
 	mTIM_1_LAST_COUNT = 0;
 
-	mTIM_2_BKUP=0;
-	mTIM_2_ENABLE_RELOAD=0;
-	mTIM_2_ENABLE_COUNT=0;
-	mTIM_2_LINKING=0;
-	mTIM_2_CURRENT=0;
-	mTIM_2_TIMER_DONE=0;
-	mTIM_2_LAST_CLOCK=0;
-	mTIM_2_BORROW_IN=0;
-	mTIM_2_BORROW_OUT=0;
-	mTIM_2_LAST_LINK_CARRY=0;
-	mTIM_2_LAST_COUNT=0;
+	mTIM_2_BKUP = 0;
+	mTIM_2_ENABLE_RELOAD = 0;
+	mTIM_2_ENABLE_COUNT = 0;
+	mTIM_2_LINKING = 0;
+	mTIM_2_CURRENT = 0;
+	mTIM_2_TIMER_DONE = 0;
+	mTIM_2_LAST_CLOCK = 0;
+	mTIM_2_BORROW_IN = 0;
+	mTIM_2_BORROW_OUT = 0;
+	mTIM_2_LAST_LINK_CARRY = 0;
+	mTIM_2_LAST_COUNT = 0;
 
-	mTIM_3_BKUP=0;
-	mTIM_3_ENABLE_RELOAD=0;
-	mTIM_3_ENABLE_COUNT=0;
-	mTIM_3_LINKING=0;
-	mTIM_3_CURRENT=0;
-	mTIM_3_TIMER_DONE=0;
-	mTIM_3_LAST_CLOCK=0;
-	mTIM_3_BORROW_IN=0;
-	mTIM_3_BORROW_OUT=0;
-	mTIM_3_LAST_LINK_CARRY=0;
-	mTIM_3_LAST_COUNT=0;
+	mTIM_3_BKUP = 0;
+	mTIM_3_ENABLE_RELOAD = 0;
+	mTIM_3_ENABLE_COUNT = 0;
+	mTIM_3_LINKING = 0;
+	mTIM_3_CURRENT = 0;
+	mTIM_3_TIMER_DONE = 0;
+	mTIM_3_LAST_CLOCK = 0;
+	mTIM_3_BORROW_IN = 0;
+	mTIM_3_BORROW_OUT = 0;
+	mTIM_3_LAST_LINK_CARRY = 0;
+	mTIM_3_LAST_COUNT = 0;
 
-	mTIM_4_BKUP=0;
-	mTIM_4_ENABLE_RELOAD=0;
-	mTIM_4_ENABLE_COUNT=0;
-	mTIM_4_LINKING=0;
-	mTIM_4_CURRENT=0;
-	mTIM_4_TIMER_DONE=0;
-	mTIM_4_LAST_CLOCK=0;
-	mTIM_4_BORROW_IN=0;
-	mTIM_4_BORROW_OUT=0;
-	mTIM_4_LAST_LINK_CARRY=0;
-	mTIM_4_LAST_COUNT=0;
+	mTIM_4_BKUP = 0;
+	mTIM_4_ENABLE_RELOAD = 0;
+	mTIM_4_ENABLE_COUNT = 0;
+	mTIM_4_LINKING = 0;
+	mTIM_4_CURRENT = 0;
+	mTIM_4_TIMER_DONE = 0;
+	mTIM_4_LAST_CLOCK = 0;
+	mTIM_4_BORROW_IN = 0;
+	mTIM_4_BORROW_OUT = 0;
+	mTIM_4_LAST_LINK_CARRY = 0;
+	mTIM_4_LAST_COUNT = 0;
 
-	mTIM_5_BKUP=0;
-	mTIM_5_ENABLE_RELOAD=0;
-	mTIM_5_ENABLE_COUNT=0;
-	mTIM_5_LINKING=0;
-	mTIM_5_CURRENT=0;
-	mTIM_5_TIMER_DONE=0;
-	mTIM_5_LAST_CLOCK=0;
-	mTIM_5_BORROW_IN=0;
-	mTIM_5_BORROW_OUT=0;
-	mTIM_5_LAST_LINK_CARRY=0;
-	mTIM_5_LAST_COUNT=0;
+	mTIM_5_BKUP = 0;
+	mTIM_5_ENABLE_RELOAD = 0;
+	mTIM_5_ENABLE_COUNT = 0;
+	mTIM_5_LINKING = 0;
+	mTIM_5_CURRENT = 0;
+	mTIM_5_TIMER_DONE = 0;
+	mTIM_5_LAST_CLOCK = 0;
+	mTIM_5_BORROW_IN = 0;
+	mTIM_5_BORROW_OUT = 0;
+	mTIM_5_LAST_LINK_CARRY = 0;
+	mTIM_5_LAST_COUNT = 0;
 
-	mTIM_6_BKUP=0;
-	mTIM_6_ENABLE_RELOAD=0;
-	mTIM_6_ENABLE_COUNT=0;
-	mTIM_6_LINKING=0;
-	mTIM_6_CURRENT=0;
-	mTIM_6_TIMER_DONE=0;
-	mTIM_6_LAST_CLOCK=0;
-	mTIM_6_BORROW_IN=0;
-	mTIM_6_BORROW_OUT=0;
-	mTIM_6_LAST_LINK_CARRY=0;
-	mTIM_6_LAST_COUNT=0;
+	mTIM_6_BKUP = 0;
+	mTIM_6_ENABLE_RELOAD = 0;
+	mTIM_6_ENABLE_COUNT = 0;
+	mTIM_6_LINKING = 0;
+	mTIM_6_CURRENT = 0;
+	mTIM_6_TIMER_DONE = 0;
+	mTIM_6_LAST_CLOCK = 0;
+	mTIM_6_BORROW_IN = 0;
+	mTIM_6_BORROW_OUT = 0;
+	mTIM_6_LAST_LINK_CARRY = 0;
+	mTIM_6_LAST_COUNT = 0;
 
 	mTIM_7_BKUP=0;
-	mTIM_7_ENABLE_RELOAD=0;
-	mTIM_7_ENABLE_COUNT=0;
-	mTIM_7_LINKING=0;
-	mTIM_7_CURRENT=0;
-	mTIM_7_TIMER_DONE=0;
-	mTIM_7_LAST_CLOCK=0;
-	mTIM_7_BORROW_IN=0;
-	mTIM_7_BORROW_OUT=0;
-	mTIM_7_LAST_LINK_CARRY=0;
-	mTIM_7_LAST_COUNT=0;
+	mTIM_7_ENABLE_RELOAD = 0;
+	mTIM_7_ENABLE_COUNT= 0;
+	mTIM_7_LINKING = 0;
+	mTIM_7_CURRENT = 0;
+	mTIM_7_TIMER_DONE = 0;
+	mTIM_7_LAST_CLOCK = 0;
+	mTIM_7_BORROW_IN = 0;
+	mTIM_7_BORROW_OUT = 0;
+	mTIM_7_LAST_LINK_CARRY = 0;
+	mTIM_7_LAST_COUNT = 0;
 
-	mAUDIO_0_BKUP=0;
-	mAUDIO_0_ENABLE_RELOAD=0;
-	mAUDIO_0_ENABLE_COUNT=0;
-	mAUDIO_0_LINKING=0;
-	mAUDIO_0_CURRENT=0;
-	mAUDIO_0_TIMER_DONE=0;
-	mAUDIO_0_LAST_CLOCK=0;
-	mAUDIO_0_BORROW_IN=0;
-	mAUDIO_0_BORROW_OUT=0;
-	mAUDIO_0_LAST_LINK_CARRY=0;
-	mAUDIO_0_LAST_COUNT=0;
-	mAUDIO_0_VOLUME=0;
-	mAUDIO_0_OUTPUT=0;
-	mAUDIO_0_INTEGRATE_ENABLE=0;
-	mAUDIO_0_WAVESHAPER=0;
+	mAUDIO_0_BKUP = 0;
+	mAUDIO_0_ENABLE_RELOAD = 0;
+	mAUDIO_0_ENABLE_COUNT = 0;
+	mAUDIO_0_LINKING = 0;
+	mAUDIO_0_CURRENT = 0;
+	mAUDIO_0_TIMER_DONE = 0;
+	mAUDIO_0_LAST_CLOCK = 0;
+	mAUDIO_0_BORROW_IN = 0;
+	mAUDIO_0_BORROW_OUT = 0;
+	mAUDIO_0_LAST_LINK_CARRY = 0;
+	mAUDIO_0_LAST_COUNT = 0;
+	mAUDIO_0_VOLUME = 0;
+	mAUDIO_0_OUTPUT = 0;
+	mAUDIO_0_INTEGRATE_ENABLE = 0;
+	mAUDIO_0_WAVESHAPER = 0;
 
-	mAUDIO_1_BKUP=0;
-	mAUDIO_1_ENABLE_RELOAD=0;
-	mAUDIO_1_ENABLE_COUNT=0;
-	mAUDIO_1_LINKING=0;
-	mAUDIO_1_CURRENT=0;
-	mAUDIO_1_TIMER_DONE=0;
-	mAUDIO_1_LAST_CLOCK=0;
-	mAUDIO_1_BORROW_IN=0;
-	mAUDIO_1_BORROW_OUT=0;
-	mAUDIO_1_LAST_LINK_CARRY=0;
-	mAUDIO_1_LAST_COUNT=0;
-	mAUDIO_1_VOLUME=0;
-	mAUDIO_1_OUTPUT=0;
-	mAUDIO_1_INTEGRATE_ENABLE=0;
-	mAUDIO_1_WAVESHAPER=0;
+	mAUDIO_1_BKUP = 0;
+	mAUDIO_1_ENABLE_RELOAD = 0;
+	mAUDIO_1_ENABLE_COUNT = 0;
+	mAUDIO_1_LINKING = 0;
+	mAUDIO_1_CURRENT = 0;
+	mAUDIO_1_TIMER_DONE = 0;
+	mAUDIO_1_LAST_CLOCK = 0;
+	mAUDIO_1_BORROW_IN = 0;
+	mAUDIO_1_BORROW_OUT = 0;
+	mAUDIO_1_LAST_LINK_CARRY = 0;
+	mAUDIO_1_LAST_COUNT = 0;
+	mAUDIO_1_VOLUME = 0;
+	mAUDIO_1_OUTPUT = 0;
+	mAUDIO_1_INTEGRATE_ENABLE = 0;
+	mAUDIO_1_WAVESHAPER = 0;
 
-	mAUDIO_2_BKUP=0;
-	mAUDIO_2_ENABLE_RELOAD=0;
-	mAUDIO_2_ENABLE_COUNT=0;
-	mAUDIO_2_LINKING=0;
-	mAUDIO_2_CURRENT=0;
-	mAUDIO_2_TIMER_DONE=0;
-	mAUDIO_2_LAST_CLOCK=0;
-	mAUDIO_2_BORROW_IN=0;
-	mAUDIO_2_BORROW_OUT=0;
-	mAUDIO_2_LAST_LINK_CARRY=0;
-	mAUDIO_2_LAST_COUNT=0;
-	mAUDIO_2_VOLUME=0;
-	mAUDIO_2_OUTPUT=0;
-	mAUDIO_2_INTEGRATE_ENABLE=0;
-	mAUDIO_2_WAVESHAPER=0;
+	mAUDIO_2_BKUP = 0;
+	mAUDIO_2_ENABLE_RELOAD = 0;
+	mAUDIO_2_ENABLE_COUNT = 0;
+	mAUDIO_2_LINKING = 0;
+	mAUDIO_2_CURRENT = 0;
+	mAUDIO_2_TIMER_DONE = 0;
+	mAUDIO_2_LAST_CLOCK = 0;
+	mAUDIO_2_BORROW_IN = 0;
+	mAUDIO_2_BORROW_OUT = 0;
+	mAUDIO_2_LAST_LINK_CARRY = 0;
+	mAUDIO_2_LAST_COUNT = 0;
+	mAUDIO_2_VOLUME = 0;
+	mAUDIO_2_OUTPUT = 0;
+	mAUDIO_2_INTEGRATE_ENABLE = 0;
+	mAUDIO_2_WAVESHAPER = 0;
 
-	mAUDIO_3_BKUP=0;
-	mAUDIO_3_ENABLE_RELOAD=0;
-	mAUDIO_3_ENABLE_COUNT=0;
-	mAUDIO_3_LINKING=0;
-	mAUDIO_3_CURRENT=0;
-	mAUDIO_3_TIMER_DONE=0;
-	mAUDIO_3_LAST_CLOCK=0;
-	mAUDIO_3_BORROW_IN=0;
-	mAUDIO_3_BORROW_OUT=0;
-	mAUDIO_3_LAST_LINK_CARRY=0;
-	mAUDIO_3_LAST_COUNT=0;
-	mAUDIO_3_VOLUME=0;
-	mAUDIO_3_OUTPUT=0;
-	mAUDIO_3_INTEGRATE_ENABLE=0;
-	mAUDIO_3_WAVESHAPER=0;
+	mAUDIO_3_BKUP = 0;
+	mAUDIO_3_ENABLE_RELOAD = 0;
+	mAUDIO_3_ENABLE_COUNT = 0;
+	mAUDIO_3_LINKING = 0;
+	mAUDIO_3_CURRENT = 0;
+	mAUDIO_3_TIMER_DONE = 0;
+	mAUDIO_3_LAST_CLOCK = 0;
+	mAUDIO_3_BORROW_IN = 0;
+	mAUDIO_3_BORROW_OUT = 0;
+	mAUDIO_3_LAST_LINK_CARRY = 0;
+	mAUDIO_3_LAST_COUNT = 0;
+	mAUDIO_3_VOLUME = 0;
+	mAUDIO_3_OUTPUT = 0;
+	mAUDIO_3_INTEGRATE_ENABLE = 0;
+	mAUDIO_3_WAVESHAPER = 0;
 
 	mSTEREO = 0xff;	// All channels enabled
 
 	// Start with an empty palette
 
-	for (int loop=0;loop<16;loop++)
-	{
+	for (int loop=0;loop<16;loop++) {
 		mPalette[loop].Index = loop;
 	}
 
@@ -311,6 +324,8 @@ ULONG CMikie::GetLfsrNext(ULONG current)
 
 void CMikie::PresetForHomebrew(void)
 {
+	TRACE_MIKIE0("PresetForHomebrew()");
+
 	//
 	// After all of that nice timer init we'll start timers running as some homebrew
 	// i.e LR.O doesn't bother to setup the timers
@@ -426,12 +441,9 @@ ULONG CMikie::DisplayRenderLine(void)
 		mIODAT_REST_SIGNAL = FALSE;
 
 	if (mLynxLine == (mTIM_2_BKUP-3)) {
+		mLynxAddr = mDisplayAddress & 0xfffc;
 		if (mDISPCTL_Flip) {
-			mLynxAddr = mDisplayAddress & 0xfffc;
 			mLynxAddr += 3;
-		}
-		else {
-			mLynxAddr = mDisplayAddress & 0xfffc;
 		}
 		// Trigger line rending to start
 		mLynxLineDMACounter = 102;
@@ -452,7 +464,7 @@ ULONG CMikie::DisplayRenderLine(void)
 		// (Step through bitmap, line at a time)
 
 		if (mpRenderCallback) {
-			(*mpRenderCallback)(&mRamPointer[mLynxAddr], (ULONG *)mPalette, mDISPCTL_Flip);
+			(*mpRenderCallback)(&mpRamPointer[mLynxAddr], (ULONG *)mPalette, mDISPCTL_Flip);
 		}
 
 		if (mDISPCTL_Flip) {
@@ -480,8 +492,7 @@ ULONG CMikie::DisplayEndOfFrame(void)
 
 //	TRACE_MIKIE0("Update() - Frame end");
 	// Trigger the callback to the display sub-system to render the
-	// display and fetch the new pointer to be used for the lynx
-	// display buffer for the forthcoming frame
+	// display.
 	if (mpDisplayCallback) (*mpDisplayCallback)();
 
 	return 0;
@@ -489,33 +500,41 @@ ULONG CMikie::DisplayEndOfFrame(void)
 
 // Peek/Poke memory handlers
 
-void CMikie::Poke(ULONG addr,UBYTE data)
+void CMikie::Poke(ULONG addr, UBYTE data)
 {
 	switch(addr & 0xff)
 	{
 		case (TIM0BKUP & 0xff):
 			mTIM_0_BKUP = data;
+			TRACE_MIKIE2("Poke(TIM0BKUP,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM1BKUP & 0xff):
 			mTIM_1_BKUP = data;
+			TRACE_MIKIE2("Poke(TIM1BKUP,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM2BKUP & 0xff):
 			mTIM_2_BKUP = data;
+			TRACE_MIKIE2("Poke(TIM2BKUP,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM3BKUP & 0xff):
 			mTIM_3_BKUP = data;
+			TRACE_MIKIE2("Poke(TIM3BKUP,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM4BKUP & 0xff):
 			mTIM_4_BKUP = data;
+			TRACE_MIKIE2("Poke(TIM4BKUP,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM5BKUP & 0xff):
 			mTIM_5_BKUP = data;
+			TRACE_MIKIE2("Poke(TIM5BKUP,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM6BKUP & 0xff):
 			mTIM_6_BKUP = data;
+			TRACE_MIKIE2("Poke(TIM6BKUP,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM7BKUP & 0xff):
 			mTIM_7_BKUP = data;
+			TRACE_MIKIE2("Poke(TIM7BKUP,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (TIM0CTLA & 0xff):
@@ -529,6 +548,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mTIM_0_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(TIM0CTLA,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM1CTLA & 0xff):
 			mTimerInterruptMask &= (0x02 ^ 0xff);
@@ -541,6 +561,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mTIM_1_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(TIM1CTLA,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM2CTLA & 0xff):
 			mTimerInterruptMask &= (0x04 ^ 0xff);
@@ -553,6 +574,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mTIM_2_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(TIM2CTLA,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM3CTLA & 0xff):
 			mTimerInterruptMask &= (0x08 ^ 0xff);
@@ -565,6 +587,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mTIM_3_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(TIM3CTLA,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM4CTLA & 0xff):
 			// Timer 4 can never generate interrupts as its timer output is used
@@ -577,6 +600,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mTIM_4_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(TIM4CTLA,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM5CTLA & 0xff):
 			mTimerInterruptMask &= (0x20 ^ 0xff);
@@ -589,6 +613,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mTIM_5_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(TIM5CTLA,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM6CTLA & 0xff):
 			mTimerInterruptMask &= (0x40 ^ 0xff);
@@ -601,6 +626,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mTIM_6_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(TIM6CTLA,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM7CTLA & 0xff):
 			mTimerInterruptMask &= (0x80 ^ 0xff);
@@ -613,39 +639,48 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mTIM_7_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(TIM7CTLA,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (TIM0CNT & 0xff):
 			mTIM_0_CURRENT = data;
 			gNextTimerEvent = gSystemCycleCount;
+			TRACE_MIKIE2("Poke(TIM0CNT ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM1CNT & 0xff):
 			mTIM_1_CURRENT = data;
 			gNextTimerEvent = gSystemCycleCount;
+			TRACE_MIKIE2("Poke(TIM1CNT ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM2CNT & 0xff):
 			mTIM_2_CURRENT = data;
 			gNextTimerEvent = gSystemCycleCount;
+			TRACE_MIKIE2("Poke(TIM2CNT ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM3CNT & 0xff):
 			mTIM_3_CURRENT = data;
 			gNextTimerEvent = gSystemCycleCount;
+			TRACE_MIKIE2("Poke(TIM3CNT ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM4CNT & 0xff):
 			mTIM_4_CURRENT = data;
 			gNextTimerEvent = gSystemCycleCount;
+			TRACE_MIKIE2("Poke(TIM4CNT ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM5CNT & 0xff):
 			mTIM_5_CURRENT = data;
 			gNextTimerEvent = gSystemCycleCount;
+			TRACE_MIKIE2("Poke(TIM5CNT ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM6CNT & 0xff):
 			mTIM_6_CURRENT = data;
 			gNextTimerEvent = gSystemCycleCount;
+			TRACE_MIKIE2("Poke(TIM6CNT ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (TIM7CNT & 0xff):
 			mTIM_7_CURRENT = data;
 			gNextTimerEvent = gSystemCycleCount;
+			TRACE_MIKIE2("Poke(TIM7CNT ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (TIM0CTLB & 0xff):
@@ -653,6 +688,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 			mTIM_0_LAST_CLOCK = data & 0x04;
 			mTIM_0_BORROW_IN = data & 0x02;
 			mTIM_0_BORROW_OUT = data & 0x01;
+			TRACE_MIKIE2("Poke(TIM0CTLB ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 //			BlowOut();
 			break;
 		case (TIM1CTLB & 0xff):
@@ -660,13 +696,15 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 			mTIM_1_LAST_CLOCK = data & 0x04;
 			mTIM_1_BORROW_IN = data & 0x02;
 			mTIM_1_BORROW_OUT = data & 0x01;
+			TRACE_MIKIE2("Poke(TIM1CTLB ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 //			BlowOut();
 			break;
-		case (TIM2CTLB&0xff):
+		case (TIM2CTLB & 0xff):
 			mTIM_2_TIMER_DONE = data & 0x08;
 			mTIM_2_LAST_CLOCK = data & 0x04;
 			mTIM_2_BORROW_IN = data & 0x02;
 			mTIM_2_BORROW_OUT = data & 0x01;
+			TRACE_MIKIE2("Poke(TIM2CTLB ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 //			BlowOut();
 			break;
 		case (TIM3CTLB & 0xff):
@@ -674,6 +712,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 			mTIM_3_LAST_CLOCK = data & 0x04;
 			mTIM_3_BORROW_IN = data & 0x02;
 			mTIM_3_BORROW_OUT = data & 0x01;
+			TRACE_MIKIE2("Poke(TIM3CTLB ,%02x) at PC=%04x",data,mSystem.mCpu->GetPC());
 //			BlowOut();
 			break;
 		case (TIM4CTLB & 0xff):
@@ -681,13 +720,15 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 			mTIM_4_LAST_CLOCK = data & 0x04;
 			mTIM_4_BORROW_IN = data & 0x02;
 			mTIM_4_BORROW_OUT = data & 0x01;
+			TRACE_MIKIE2("Poke(TIM4CTLB ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 //			BlowOut();
 			break;
 		case (TIM5CTLB & 0xff):
-			mTIM_5_TIMER_DONE= data & 0x08;
-			mTIM_5_LAST_CLOCK= data & 0x04;
+			mTIM_5_TIMER_DONE = data & 0x08;
+			mTIM_5_LAST_CLOCK = data & 0x04;
 			mTIM_5_BORROW_IN = data & 0x02;
 			mTIM_5_BORROW_OUT = data & 0x01;
+			TRACE_MIKIE2("Poke(TIM5CTLB ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 //			BlowOut();
 			break;
 		case (TIM6CTLB & 0xff):
@@ -695,6 +736,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 			mTIM_6_LAST_CLOCK = data & 0x04;
 			mTIM_6_BORROW_IN = data & 0x02;
 			mTIM_6_BORROW_OUT = data & 0x01;
+			TRACE_MIKIE2("Poke(TIM6CTLB ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 //			BlowOut();
 			break;
 		case (TIM7CTLB & 0xff):
@@ -702,6 +744,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 			mTIM_7_LAST_CLOCK = data & 0x04;
 			mTIM_7_BORROW_IN = data & 0x02;
 			mTIM_7_BORROW_OUT = data & 0x01;
+			TRACE_MIKIE2("Poke(TIM7CTLB ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 //			BlowOut();
 			break;
 
@@ -713,17 +756,21 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				gNextTimerEvent = gSystemCycleCount;
 			}
 			mAUDIO_0_VOLUME = (SBYTE)data;
+			TRACE_MIKIE2("Poke(AUD0VOL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD0SHFTFB & 0xff):
 			mAUDIO_0_WAVESHAPER &= 0x001fff;
 			mAUDIO_0_WAVESHAPER |= (ULONG)data << 13;
+			TRACE_MIKIE2("Poke(AUD0SHFTB,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD0OUTVAL & 0xff):
 			mAUDIO_0_OUTPUT = data;
+			TRACE_MIKIE2("Poke(AUD0OUTVAL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD0L8SHFT & 0xff):
 			mAUDIO_0_WAVESHAPER &= 0x1fff00;
 			mAUDIO_0_WAVESHAPER |= data;
+			TRACE_MIKIE2("Poke(AUD0L8SHFT,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD0TBACK & 0xff):
 			// Counter is disabled when backup is zero for optimisation
@@ -734,6 +781,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				gNextTimerEvent = gSystemCycleCount;
 			}
 			mAUDIO_0_BKUP = data;
+			TRACE_MIKIE2("Poke(AUD0TBACK,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD0CTL & 0xff):
 			mAUDIO_0_ENABLE_RELOAD = data & 0x10;
@@ -747,49 +795,55 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mAUDIO_0_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(AUD0CTL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD0COUNT & 0xff):
 			mAUDIO_0_CURRENT = data;
+			TRACE_MIKIE2("Poke(AUD0COUNT,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD0MISC & 0xff):
 			mAUDIO_0_WAVESHAPER &= 0x1ff0ff;
-			mAUDIO_0_WAVESHAPER |= (data & 0xf0)<<4;
+			mAUDIO_0_WAVESHAPER |= (data & 0xf0) << 4;
 			mAUDIO_0_BORROW_IN = data & 0x02;
 			mAUDIO_0_BORROW_OUT = data & 0x01;
 			mAUDIO_0_LAST_CLOCK = data & 0x04;
+			TRACE_MIKIE2("Poke(AUD0MISC,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (AUD1VOL & 0xff):
 			// Counter is disabled when volume is zero for optimisation
 			// reasons, we must update the last use position to stop problems
-			if (!mAUDIO_1_VOLUME && data)
-			{
+			if (!mAUDIO_1_VOLUME && data) {
 				mAUDIO_1_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
 			mAUDIO_1_VOLUME = (SBYTE)data;
+			TRACE_MIKIE2("Poke(AUD1VOL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD1SHFTFB & 0xff):
 			mAUDIO_1_WAVESHAPER &= 0x001fff;
-			mAUDIO_1_WAVESHAPER |= (ULONG)data<<13;
+			mAUDIO_1_WAVESHAPER |= (ULONG)data << 13;
+			TRACE_MIKIE2("Poke(AUD1SHFTFB,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD1OUTVAL & 0xff):
 			mAUDIO_1_OUTPUT = data;
+			TRACE_MIKIE2("Poke(AUD1OUTVAL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD1L8SHFT & 0xff):
 			mAUDIO_1_WAVESHAPER &= 0x1fff00;
 			mAUDIO_1_WAVESHAPER |= data;
+			TRACE_MIKIE2("Poke(AUD1L8SHFT,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD1TBACK & 0xff):
 			// Counter is disabled when backup is zero for optimisation
 			// due to the fact that the output frequency will be above audio
 			// range, we must update the last use position to stop problems
-			if (!mAUDIO_1_BKUP && data)
-			{
+			if (!mAUDIO_1_BKUP && data) {
 				mAUDIO_1_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
 			mAUDIO_1_BKUP = data;
+			TRACE_MIKIE2("Poke(AUD1TBACK,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD1CTL & 0xff):
 			mAUDIO_1_ENABLE_RELOAD = data & 0x10;
@@ -803,38 +857,44 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mAUDIO_1_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(AUD1CTL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD1COUNT & 0xff):
 			mAUDIO_1_CURRENT = data;
+			TRACE_MIKIE2("Poke(AUD1COUNT,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD1MISC & 0xff):
 			mAUDIO_1_WAVESHAPER &= 0x1ff0ff;
-			mAUDIO_1_WAVESHAPER |= (data & 0xf0)<<4;
+			mAUDIO_1_WAVESHAPER |= (data & 0xf0) << 4;
 			mAUDIO_1_BORROW_IN = data & 0x02;
 			mAUDIO_1_BORROW_OUT = data & 0x01;
 			mAUDIO_1_LAST_CLOCK = data & 0x04;
+			TRACE_MIKIE2("Poke(AUD1MISC,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
-		case (AUD2VOL & 0xff):
+		case (AUD2VOL&0xff): 
 			// Counter is disabled when volume is zero for optimisation
 			// reasons, we must update the last use position to stop problems
-			if (!mAUDIO_2_VOLUME && data)
-			{
+			if (!mAUDIO_2_VOLUME && data) {
 				mAUDIO_2_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
 			mAUDIO_2_VOLUME = (SBYTE)data;
+			TRACE_MIKIE2("Poke(AUD2VOL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD2SHFTFB & 0xff):
 			mAUDIO_2_WAVESHAPER &= 0x001fff;
-			mAUDIO_2_WAVESHAPER |= (ULONG)data<<13;
+			mAUDIO_2_WAVESHAPER |= (ULONG)data << 13;
+			TRACE_MIKIE2("Poke(AUD2VSHFTFB,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD2OUTVAL & 0xff):
 			mAUDIO_2_OUTPUT = data;
+			TRACE_MIKIE2("Poke(AUD2OUTVAL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD2L8SHFT & 0xff):
 			mAUDIO_2_WAVESHAPER &= 0x1fff00;
 			mAUDIO_2_WAVESHAPER |= data;
+			TRACE_MIKIE2("Poke(AUD2L8SHFT,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD2TBACK & 0xff):
 			// Counter is disabled when backup is zero for optimisation
@@ -845,29 +905,33 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				gNextTimerEvent = gSystemCycleCount;
 			}
 			mAUDIO_2_BKUP = data;
+			TRACE_MIKIE2("Poke(AUD2TBACK,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD2CTL & 0xff):
 			mAUDIO_2_ENABLE_RELOAD = data & 0x10;
 			mAUDIO_2_ENABLE_COUNT = data & 0x08;
 			mAUDIO_2_LINKING = data & 0x07;
 			mAUDIO_2_INTEGRATE_ENABLE = data & 0x20;
-			if (data & 0x40) mAUDIO_2_TIMER_DONE = 0;
+			if(data&0x40) mAUDIO_2_TIMER_DONE = 0;
 			mAUDIO_2_WAVESHAPER &= 0x1fefff;
 			mAUDIO_2_WAVESHAPER |= (data & 0x80) ? 0x001000 : 0x000000;
 			if (data & 0x48) {
 				mAUDIO_2_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(AUD2CTL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD2COUNT & 0xff):
 			mAUDIO_2_CURRENT = data;
+			TRACE_MIKIE2("Poke(AUD2COUNT,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD2MISC & 0xff):
 			mAUDIO_2_WAVESHAPER &= 0x1ff0ff;
-			mAUDIO_2_WAVESHAPER|= (data & 0xf0)<<4;
+			mAUDIO_2_WAVESHAPER |= (data&0xf0) << 4;
 			mAUDIO_2_BORROW_IN = data & 0x02;
 			mAUDIO_2_BORROW_OUT = data & 0x01;
 			mAUDIO_2_LAST_CLOCK = data & 0x04;
+			TRACE_MIKIE2("Poke(AUD2MISC,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (AUD3VOL & 0xff):
@@ -878,17 +942,21 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				gNextTimerEvent = gSystemCycleCount;
 			}
 			mAUDIO_3_VOLUME = (SBYTE)data;
+			TRACE_MIKIE2("Poke(AUD3VOL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD3SHFTFB & 0xff):
 			mAUDIO_3_WAVESHAPER &= 0x001fff;
-			mAUDIO_3_WAVESHAPER |= (ULONG)data<<13;
+			mAUDIO_3_WAVESHAPER |= (ULONG)data << 13;
+			TRACE_MIKIE2("Poke(AUD3SHFTFB,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD3OUTVAL & 0xff):
 			mAUDIO_3_OUTPUT = data;
+			TRACE_MIKIE2("Poke(AUD3OUTVAL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD3L8SHFT & 0xff):
 			mAUDIO_3_WAVESHAPER &= 0x1fff00;
 			mAUDIO_3_WAVESHAPER |= data;
+			TRACE_MIKIE2("Poke(AUD3L8SHFT,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD3TBACK & 0xff):
 			// Counter is disabled when backup is zero for optimisation
@@ -899,6 +967,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				gNextTimerEvent = gSystemCycleCount;
 			}
 			mAUDIO_3_BKUP = data;
+			TRACE_MIKIE2("Poke(AUD3TBACK,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD3CTL & 0xff):
 			mAUDIO_3_ENABLE_RELOAD = data & 0x10;
@@ -912,16 +981,19 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 				mAUDIO_3_LAST_COUNT = gSystemCycleCount;
 				gNextTimerEvent = gSystemCycleCount;
 			}
+			TRACE_MIKIE2("Poke(AUD3CTL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD3COUNT & 0xff):
 			mAUDIO_3_CURRENT = data;
+			TRACE_MIKIE2("Poke(AUD3COUNT,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (AUD3MISC & 0xff):
 			mAUDIO_3_WAVESHAPER &= 0x1ff0ff;
-			mAUDIO_3_WAVESHAPER |= (data & 0xf0)<<4;
+			mAUDIO_3_WAVESHAPER |= (data & 0xf0) << 4;
 			mAUDIO_3_BORROW_IN = data & 0x02;
 			mAUDIO_3_BORROW_OUT = data & 0x01;
 			mAUDIO_3_LAST_CLOCK = data & 0x04;
+			TRACE_MIKIE2("Poke(AUD3MISC,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (ATTEN_A & 0xff):
@@ -929,69 +1001,66 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 		case (ATTEN_C & 0xff):
 		case (ATTEN_D & 0xff):
 		case (MPAN & 0xff):
+			TRACE_MIKIE2("Poke(ATTEN_A/B/C/D/MPAN,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (MSTEREO & 0xff):
 			data ^= 0xff;
-//			if (!(mSTEREO & 0x11) && (data & 0x11))
-//			{
+//			if (!(mSTEREO & 0x11) && (data & 0x11)) {
 //				mAUDIO_0_LAST_COUNT = gSystemCycleCount;
 //				gNextTimerEvent = gSystemCycleCount;
 //			}
-//			if (!(mSTEREO & 0x22) && (data & 0x22))
-//			{
+//			if (!(mSTEREO & 0x22) && (data & 0x22)) {
 //				mAUDIO_1_LAST_COUNT = gSystemCycleCount;
 //				gNextTimerEvent = gSystemCycleCount;
 //			}
-//			if (!(mSTEREO & 0x44) && (data & 0x44))
-//			{
+//			if (!(mSTEREO & 0x44) && (data & 0x44)) {
 //				mAUDIO_2_LAST_COUNT = gSystemCycleCount;
 //				gNextTimerEvent = gSystemCycleCount;
 //			}
-//			if (!(mSTEREO & 0x88) && (data & 0x88))
-//			{
+//			if (!(mSTEREO & 0x88) && (data & 0x88)) {
 //				mAUDIO_3_LAST_COUNT = gSystemCycleCount;
 //				gNextTimerEvent = gSystemCycleCount;
 //			}
 			mSTEREO = data;
+			TRACE_MIKIE2("Poke(MSTEREO,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (INTRST & 0xff):
 			mTimerStatusFlags &= ~data;
-			gSystemIRQ = mTimerStatusFlags;
 			gNextTimerEvent = gSystemCycleCount;
+			TRACE_MIKIE2("Poke(INTRST  ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (INTSET & 0xff):
+			TRACE_MIKIE2("Poke(INTSET  ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			mTimerStatusFlags |= data;
-			gSystemIRQ = mTimerStatusFlags;
 			gNextTimerEvent = gSystemCycleCount;
 			break;
 
 		case (SYSCTL1 & 0xff):
+			TRACE_MIKIE2("Poke(SYSCTL1 ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			if (!(data & 0x02)) {
-//				CString addr;
-				C6502_REGS regs;
-				mSystem.GetRegs(regs);
-//				addr.Format("CMikie::Poke(SYSCTL1) - Lynx power down occured at PC=$%04x.",regs.PC);
-//				::MessageBox(NULL,addr,"Runtime Alert - System Halted", MB_OK | MB_ICONEXCLAMATION);
-				printf("CMikie::Poke(SYSCTL1) - Lynx power down occured at PC=$%04x.\n",regs.PC);
+				TRACE_MIKIE1("CMikie::Poke(SYSCTL1) - Lynx power down occured at PC=$%04x.\n",mSystem.mCpu->GetPC());
 				mSystem.Reset();
-				gSystemHalt=TRUE;
+				gSystemHalt = TRUE;
 			}
 			mSystem.CartAddressStrobe((data & 0x01) ? TRUE : FALSE);
 			break;
 
 		case (MIKEYSREV & 0xff):
+			TRACE_MIKIE2("Poke(MIKEYSREV,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (IODIR & 0xff):
+			TRACE_MIKIE2("Poke(IODIR   ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			mIODIR = data;
 			break;
 
 		case (IODAT & 0xff):
-			mIODAT = data & (mIODIR ^ 0xff);
-			mSystem.CartAddressData((data & 0x02) ? TRUE : FALSE);
+			TRACE_MIKIE2("Poke(IODAT   ,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
+			mIODAT = data;
+			mSystem.CartAddressData((mIODAT & 0x02) ? TRUE : FALSE);
 			// Enable cart writes to BANK1 on AUDIN if AUDIN is set to output
 			if (mIODIR & 0x10) mSystem.mCart->mWriteEnableBank1 = (mIODAT & 0x10) ? TRUE : FALSE;
 			break;
@@ -1019,6 +1088,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 			break;
 
 		case (SERDAT & 0xff):
+			TRACE_MIKIE2("Poke(SERDAT ,%04x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			//
 			// Fake transmission, set counter to be decremented by Timer 4
 			//
@@ -1042,26 +1112,16 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 			break;
 
 		case (SDONEACK & 0xff):
+			TRACE_MIKIE2("Poke(SDONEACK,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (CPUSLEEP & 0xff):
-			TRACE_MIKIE2("Poke(CPUSLEEP,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
-			//
-			// We must do "cycles_used" cycles of the system with the CPU sleeping
-			// to compensate for the sprite painting, Mikie update will autowake the
-			// CPU at the right time.
-			//
-			{
-				TRACE_MIKIE0("*********************************************************");
-				TRACE_MIKIE0("****               CPU SLEEP STARTED                 ****");
-				TRACE_MIKIE0("*********************************************************");
-				SLONG cycles_used = (SLONG)mSystem.PaintSprites();
-				gCPUWakeupTime = gSystemCycleCount+cycles_used;
-				SetCPUSleep();
-				TRACE_MIKIE2("Poke(CPUSLEEP,%02x) wakeup at cycle =%012d", data, gCPUWakeupTime);
-			}
+			gSuzieDoneTime = gSystemCycleCount+mSystem.PaintSprites();
+			SetCPUSleep();
+			TRACE_MIKIE3("Poke(CPUSLEEP,%02x) at PC=%04x, wakeup at cycle =%012d", data, mSystem.mCpu->GetPC(), gSuzieDoneTime);
 			break;
 
 		case (DISPCTL & 0xff):
+			TRACE_MIKIE2("Poke(DISPCTL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			{
 				TDISPCTL tmp;
 				tmp.Byte = data;
@@ -1072,23 +1132,30 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 			}
 			break;
 		case (PBKUP & 0xff):
+			TRACE_MIKIE2("Poke(PBKUP,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (DISPADRL & 0xff):
+			TRACE_MIKIE2("Poke(DISPADRL,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			mDisplayAddress &= 0xff00;
 			mDisplayAddress += data;
 			break;
 
 		case (DISPADRH & 0xff):
+			TRACE_MIKIE2("Poke(DISPADRH,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			mDisplayAddress &= 0x00ff;
-			mDisplayAddress += (data<<8);
+			mDisplayAddress += (data << 8);
 			break;
 
 		case (Mtest0 & 0xff):
 		case (Mtest1 & 0xff):
+			// Test registers are unimplemented
+			// lets hope no programs use them.
+			TRACE_MIKIE2("Poke(MTEST0/1,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 		case (Mtest2 & 0xff):
 			// Test registers are unimplemented
 			// lets hope no programs use them.
+			TRACE_MIKIE2("Poke(MTEST2,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			break;
 
 		case (GREEN0 & 0xff):
@@ -1107,6 +1174,7 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 		case (GREEND & 0xff):
 		case (GREENE & 0xff):
 		case (GREENF & 0xff):
+			TRACE_MIKIE2("Poke(GREENPAL0-F,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
 			mPalette[addr & 0x0f].Colours.Green = data & 0x0f;
 			break;
 
@@ -1126,7 +1194,8 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 		case (BLUEREDD & 0xff):
 		case (BLUEREDE & 0xff):
 		case (BLUEREDF & 0xff):
-			mPalette[addr & 0x0f].Colours.Blue = (data & 0xf0)>>4;
+			TRACE_MIKIE2("Poke(BLUEREDPAL0-F,%02x) at PC=%04x", data, mSystem.mCpu->GetPC());
+			mPalette[addr & 0x0f].Colours.Blue = (data & 0xf0) >> 4;
 			mPalette[addr & 0x0f].Colours.Red = data & 0x0f;
 			break;
 
@@ -1136,48 +1205,54 @@ void CMikie::Poke(ULONG addr,UBYTE data)
 		case (MAGRDY1 & 0xff):
 		case (AUDIN & 0xff):
 		case (MIKEYHREV & 0xff):
-//			_RPT3(_CRT_WARN, "CMikie::Poke(%04x,%02x) - Poke to read only register location at time %d\n",addr,data,gSystemCycleCount);
+			TRACE_MIKIE3("Poke(%04x,%02x) - Poke to read only register location at PC=%04x", addr, data, mSystem.mCpu->GetPC());
 			break;
 
 // Errors on illegal location accesses
 
 		default:
-//			_RPT3(_CRT_WARN, "CMikie::Poke(%04x,%02x) - Poke to illegal location at time %d\n",addr,data,gSystemCycleCount);
+			TRACE_MIKIE3("Poke(%04x,%02x) - Poke to illegal location at PC=%04x", addr, data, mSystem.mCpu->GetPC());
 			break;
 	}
 }
 
-
-
 UBYTE CMikie::Peek(ULONG addr)
 {
-	switch(addr&0xff)
+	switch(addr & 0xff)
 	{
 
 // Timer control registers
 
 		case (TIM0BKUP & 0xff):
+			TRACE_MIKIE2("Peek(TIM0KBUP ,%02x) at PC=%04x", mTIM_0_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_0_BKUP;
 			break;
 		case (TIM1BKUP & 0xff):
+			TRACE_MIKIE2("Peek(TIM1KBUP ,%02x) at PC=%04x", mTIM_1_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_1_BKUP;
 			break;
 		case (TIM2BKUP & 0xff):
+			TRACE_MIKIE2("Peek(TIM2KBUP ,%02x) at PC=%04x", mTIM_2_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_2_BKUP;
 			break;
 		case (TIM3BKUP & 0xff):
+			TRACE_MIKIE2("Peek(TIM3KBUP ,%02x) at PC=%04x", mTIM_3_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_3_BKUP;
 			break;
 		case (TIM4BKUP & 0xff):
+			TRACE_MIKIE2("Peek(TIM4KBUP ,%02x) at PC=%04x", mTIM_4_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_4_BKUP;
 			break;
 		case (TIM5BKUP & 0xff):
+			TRACE_MIKIE2("Peek(TIM5KBUP ,%02x) at PC=%04x", mTIM_5_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_5_BKUP;
 			break;
 		case (TIM6BKUP & 0xff):
+			TRACE_MIKIE2("Peek(TIM6KBUP ,%02x) at PC=%04x", mTIM_6_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_6_BKUP;
 			break;
 		case (TIM7BKUP & 0xff):
+			TRACE_MIKIE2("Peek(TIM7KBUP ,%02x) at PC=%04x", mTIM_7_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_7_BKUP;
 			break;
 
@@ -1188,6 +1263,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_0_ENABLE_RELOAD) ? 0x10 : 0x00;
 				retval |= (mTIM_0_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= mTIM_0_LINKING;
+				TRACE_MIKIE2("Peek(TIM0CTLA ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
@@ -1198,6 +1274,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_1_ENABLE_RELOAD) ? 0x10 : 0x00;
 				retval |= (mTIM_1_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= mTIM_1_LINKING;
+				TRACE_MIKIE2("Peek(TIM1CTLA ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
@@ -1208,6 +1285,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_2_ENABLE_RELOAD) ? 0x10 : 0x00;
 				retval |= (mTIM_2_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= mTIM_2_LINKING;
+				TRACE_MIKIE2("Peek(TIM2CTLA ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
@@ -1218,6 +1296,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_3_ENABLE_RELOAD) ? 0x10 : 0x00;
 				retval |= (mTIM_3_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= mTIM_3_LINKING;
+				TRACE_MIKIE2("Peek(TIM3CTLA ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
@@ -1228,6 +1307,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_4_ENABLE_RELOAD) ? 0x10 : 0x00;
 				retval |= (mTIM_4_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= mTIM_4_LINKING;
+				TRACE_MIKIE2("Peek(TIM4CTLA ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
@@ -1238,6 +1318,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_5_ENABLE_RELOAD) ? 0x10 : 0x00;
 				retval |= (mTIM_5_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= mTIM_5_LINKING;
+				TRACE_MIKIE2("Peek(TIM5CTLA ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
@@ -1248,50 +1329,60 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_6_ENABLE_RELOAD) ? 0x10 : 0x00;
 				retval |= (mTIM_6_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= mTIM_6_LINKING;
+				TRACE_MIKIE2("Peek(TIM6CTLA ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
 		case (TIM7CTLA & 0xff):
 			{
 				UBYTE retval = 0;
-				retval |= (mTimerInterruptMask & 0x80) ? 0x80 : 0x00;
+				retval |= (mTimerInterruptMask & 0x80) ?0x80 : 0x00;
 				retval |= (mTIM_7_ENABLE_RELOAD) ? 0x10 : 0x00;
 				retval |= (mTIM_7_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= mTIM_7_LINKING;
+				TRACE_MIKIE2("Peek(TIM7CTLA ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
 
 		case (TIM0CNT & 0xff):
 			Update();
+			TRACE_MIKIE2("Peek(TIM0CNT  ,%02x) at PC=%04x", mTIM_0_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_0_CURRENT;
 			break;
 		case (TIM1CNT & 0xff):
 			Update();
+			TRACE_MIKIE2("Peek(TIM1CNT  ,%02x) at PC=%04x", mTIM_1_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_1_CURRENT;
 			break;
 		case (TIM2CNT & 0xff):
 			Update();
+			TRACE_MIKIE2("Peek(TIM2CNT  ,%02x) at PC=%04x", mTIM_2_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_2_CURRENT;
 			break;
 		case (TIM3CNT & 0xff):
 			Update();
+			TRACE_MIKIE2("Peek(TIM3CNT  ,%02x) at PC=%04x", mTIM_3_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_3_CURRENT;
 			break;
 		case (TIM4CNT & 0xff):
 			Update();
+			TRACE_MIKIE2("Peek(TIM4CNT  ,%02x) at PC=%04x", mTIM_4_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_4_CURRENT;
 			break;
 		case (TIM5CNT & 0xff):
 			Update();
+			TRACE_MIKIE2("Peek(TIM5CNT  ,%02x) at PC=%04x", mTIM_5_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_5_CURRENT;
 			break;
 		case (TIM6CNT & 0xff):
 			Update();
+			TRACE_MIKIE2("Peek(TIM6CNT  ,%02x) at PC=%04x", mTIM_6_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_6_CURRENT;
 			break;
 		case (TIM7CNT & 0xff):
 			Update();
+			TRACE_MIKIE2("Peek(TIM7CNT  ,%02x) at PC=%04x", mTIM_7_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mTIM_7_CURRENT;
 			break;
 
@@ -1302,6 +1393,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_0_LAST_CLOCK) ? 0x04 : 0x00;
 				retval |= (mTIM_0_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mTIM_0_BORROW_OUT) ? 0x01 : 0x00;
+				TRACE_MIKIE2("Peek(TIM0CTLB ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 //			BlowOut();
@@ -1313,6 +1405,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_1_LAST_CLOCK) ? 0x04 : 0x00;
 				retval |= (mTIM_1_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mTIM_1_BORROW_OUT) ? 0x01 : 0x00;
+				TRACE_MIKIE2("Peek(TIM1CTLB ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 //			BlowOut();
@@ -1324,6 +1417,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_2_LAST_CLOCK) ? 0x04 : 0x00;
 				retval |= (mTIM_2_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mTIM_2_BORROW_OUT) ? 0x01 : 0x00;
+				TRACE_MIKIE2("Peek(TIM2CTLB ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 //			BlowOut();
@@ -1335,6 +1429,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_3_LAST_CLOCK) ? 0x04 : 0x00;
 				retval |= (mTIM_3_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mTIM_3_BORROW_OUT) ? 0x01 : 0x00;
+				TRACE_MIKIE2("Peek(TIM3CTLB ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 //			BlowOut();
@@ -1346,6 +1441,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_4_LAST_CLOCK) ? 0x04 : 0x00;
 				retval |= (mTIM_4_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mTIM_4_BORROW_OUT) ? 0x01 : 0x00;
+				TRACE_MIKIE2("Peek(TIM4CTLB ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 //			BlowOut();
@@ -1357,6 +1453,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_5_LAST_CLOCK) ? 0x04 : 0x00;
 				retval |= (mTIM_5_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mTIM_5_BORROW_OUT) ? 0x01 : 0x00;
+				TRACE_MIKIE2("Peek(TIM5CTLB ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 //			BlowOut();
@@ -1368,6 +1465,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_6_LAST_CLOCK) ? 0x04 : 0x00;
 				retval |= (mTIM_6_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mTIM_6_BORROW_OUT) ? 0x01 : 0x00;
+				TRACE_MIKIE2("Peek(TIM6CTLB ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 //			BlowOut();
@@ -1379,6 +1477,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mTIM_7_LAST_CLOCK) ? 0x04 : 0x00;
 				retval |= (mTIM_7_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mTIM_7_BORROW_OUT) ? 0x01 : 0x00;
+				TRACE_MIKIE2("Peek(TIM7CTLB ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 //			BlowOut();
@@ -1387,58 +1486,71 @@ UBYTE CMikie::Peek(ULONG addr)
 // Audio control registers
 
 		case (AUD0VOL & 0xff):
+			TRACE_MIKIE2("Peek(AUD0VOL,%02x) at PC=%04x", (UBYTE)mAUDIO_0_VOLUME, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_0_VOLUME;
 			break;
 		case (AUD0SHFTFB & 0xff):
+			TRACE_MIKIE2("Peek(AUD0SHFTFB,%02x) at PC=%04x", (UBYTE)(mAUDIO_0_WAVESHAPER >> 13) & 0xff, mSystem.mCpu->GetPC());
 			return (UBYTE)((mAUDIO_0_WAVESHAPER >> 13) & 0xff);
 			break;
 		case (AUD0OUTVAL & 0xff):
+			TRACE_MIKIE2("Peek(AUD0OUTVAL,%02x) at PC=%04x", (UBYTE)mAUDIO_0_OUTPUT, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_0_OUTPUT;
 			break;
 		case (AUD0L8SHFT & 0xff):
-			return (UBYTE)(mAUDIO_0_WAVESHAPER & 0xff);
+			TRACE_MIKIE2("Peek(AUD0L8SHFT,%02x) at PC=%04x", (UBYTE)(mAUDIO_0_WAVESHAPER & 0xff), mSystem.mCpu->GetPC());
+			return (UBYTE)(mAUDIO_0_WAVESHAPER&0xff);
 			break;
 		case (AUD0TBACK & 0xff):
+			TRACE_MIKIE2("Peek(AUD0TBACK,%02x) at PC=%04x", (UBYTE)mAUDIO_0_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_0_BKUP;
 			break;
 		case (AUD0CTL & 0xff):
 			{
 				UBYTE retval = 0;
-				retval |= (mAUDIO_0_INTEGRATE_ENABLE)? 0x20 : 0x00;
+				retval |= (mAUDIO_0_INTEGRATE_ENABLE) ? 0x20 : 0x00;
 				retval |= (mAUDIO_0_ENABLE_RELOAD) ? 0x10 : 0x00;
 				retval |= (mAUDIO_0_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= (mAUDIO_0_WAVESHAPER & 0x001000) ? 0x80 : 0x00;
 				retval |= mAUDIO_0_LINKING;
+				TRACE_MIKIE2("Peek(AUD0CTL,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
 		case (AUD0COUNT & 0xff):
+			TRACE_MIKIE2("Peek(AUD0COUNT,%02x) at PC=%04x", (UBYTE)mAUDIO_0_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_0_CURRENT;
 			break;
 		case (AUD0MISC & 0xff):
 			{
 				UBYTE retval = 0;
-				retval |= (mAUDIO_0_BORROW_OUT) ? 0x01:0x00;
-				retval |= (mAUDIO_0_BORROW_IN) ? 0x02:0x00;
-				retval |= (mAUDIO_0_LAST_CLOCK) ? 0x08:0x00;
+				retval |= (mAUDIO_0_BORROW_OUT) ? 0x01 : 0x00;
+				retval |= (mAUDIO_0_BORROW_IN) ? 0x02 : 0x00;
+				retval |= (mAUDIO_0_LAST_CLOCK) ? 0x08 : 0x00;
 				retval |= (mAUDIO_0_WAVESHAPER >> 4) & 0xf0;
+				TRACE_MIKIE2("Peek(AUD0MISC,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
 
 		case (AUD1VOL & 0xff):
+			TRACE_MIKIE2("Peek(AUD1VOL,%02x) at PC=%04x", (UBYTE)mAUDIO_1_VOLUME, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_1_VOLUME;
 			break;
 		case (AUD1SHFTFB & 0xff):
+			TRACE_MIKIE2("Peek(AUD1SHFTFB,%02x) at PC=%04x", (UBYTE)(mAUDIO_1_WAVESHAPER >> 13) & 0xff, mSystem.mCpu->GetPC());
 			return (UBYTE)((mAUDIO_1_WAVESHAPER >> 13) & 0xff);
 			break;
 		case (AUD1OUTVAL & 0xff):
+			TRACE_MIKIE2("Peek(AUD1OUTVAL,%02x) at PC=%04x", (UBYTE)mAUDIO_1_OUTPUT, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_1_OUTPUT;
 			break;
 		case (AUD1L8SHFT & 0xff):
+			TRACE_MIKIE2("Peek(AUD1L8SHFT,%02x) at PC=%04x", (UBYTE)(mAUDIO_1_WAVESHAPER & 0xff), mSystem.mCpu->GetPC());
 			return (UBYTE)(mAUDIO_1_WAVESHAPER & 0xff);
 			break;
 		case (AUD1TBACK & 0xff):
+			TRACE_MIKIE2("Peek(AUD1TBACK,%02x) at PC=%04x", (UBYTE)mAUDIO_1_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_1_BKUP;
 			break;
 		case (AUD1CTL & 0xff):
@@ -1449,10 +1561,12 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mAUDIO_1_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= (mAUDIO_1_WAVESHAPER & 0x001000) ? 0x80 : 0x00;
 				retval |= mAUDIO_1_LINKING;
+				TRACE_MIKIE2("Peek(AUD1CTL,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
 		case (AUD1COUNT & 0xff):
+			TRACE_MIKIE2("Peek(AUD1COUNT,%02x) at PC=%04x", (UBYTE)mAUDIO_1_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_1_CURRENT;
 			break;
 		case (AUD1MISC & 0xff):
@@ -1462,23 +1576,29 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mAUDIO_1_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mAUDIO_1_LAST_CLOCK) ? 0x08 : 0x00;
 				retval |= (mAUDIO_1_WAVESHAPER >> 4) & 0xf0;
+				TRACE_MIKIE2("Peek(AUD1MISC,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
 
 		case (AUD2VOL & 0xff):
+			TRACE_MIKIE2("Peek(AUD2VOL,%02x) at PC=%04x", (UBYTE)mAUDIO_2_VOLUME, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_2_VOLUME;
 			break;
 		case (AUD2SHFTFB & 0xff):
+			TRACE_MIKIE2("Peek(AUD2SHFTFB,%02x) at PC=%04x", (UBYTE)(mAUDIO_2_WAVESHAPER >> 13) & 0xff, mSystem.mCpu->GetPC());
 			return (UBYTE)((mAUDIO_2_WAVESHAPER >> 13) & 0xff);
 			break;
 		case (AUD2OUTVAL & 0xff):
+			TRACE_MIKIE2("Peek(AUD2OUTVAL,%02x) at PC=%04x", (UBYTE)mAUDIO_2_OUTPUT, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_2_OUTPUT;
 			break;
-		case (AUD2L8SHFT & 0xff):
+		case (AUD2L8SHFT&0xff):
+			TRACE_MIKIE2("Peek(AUD2L8SHFT,%02x) at PC=%04x", (UBYTE)(mAUDIO_2_WAVESHAPER & 0xff), mSystem.mCpu->GetPC());
 			return (UBYTE)(mAUDIO_2_WAVESHAPER & 0xff);
 			break;
 		case (AUD2TBACK & 0xff):
+			TRACE_MIKIE2("Peek(AUD2TBACK,%02x) at PC=%04x", (UBYTE)mAUDIO_2_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_2_BKUP;
 			break;
 		case (AUD2CTL & 0xff):
@@ -1489,10 +1609,12 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mAUDIO_2_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= (mAUDIO_2_WAVESHAPER & 0x001000) ? 0x80 : 0x00;
 				retval |= mAUDIO_2_LINKING;
+				TRACE_MIKIE2("Peek(AUD2CTL,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
 		case (AUD2COUNT & 0xff):
+			TRACE_MIKIE2("Peek(AUD2COUNT,%02x) at PC=%04x", (UBYTE)mAUDIO_2_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_2_CURRENT;
 			break;
 		case (AUD2MISC & 0xff):
@@ -1502,23 +1624,29 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mAUDIO_2_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mAUDIO_2_LAST_CLOCK) ? 0x08 : 0x00;
 				retval |= (mAUDIO_2_WAVESHAPER >> 4) & 0xf0;
+				TRACE_MIKIE2("Peek(AUD2MISC,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
 
 		case (AUD3VOL & 0xff):
+			TRACE_MIKIE2("Peek(AUD3VOL,%02x) at PC=%04x", (UBYTE)mAUDIO_3_VOLUME, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_3_VOLUME;
 			break;
 		case (AUD3SHFTFB & 0xff):
+			TRACE_MIKIE2("Peek(AUD3SHFTFB,%02x) at PC=%04x", (UBYTE)(mAUDIO_3_WAVESHAPER >> 13) & 0xff, mSystem.mCpu->GetPC());
 			return (UBYTE)((mAUDIO_3_WAVESHAPER >> 13) & 0xff);
 			break;
 		case (AUD3OUTVAL & 0xff):
+			TRACE_MIKIE2("Peek(AUD3OUTVAL,%02x) at PC=%04x", (UBYTE)mAUDIO_3_OUTPUT, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_3_OUTPUT;
 			break;
 		case (AUD3L8SHFT & 0xff):
+			TRACE_MIKIE2("Peek(AUD3L8SHFT,%02x) at PC=%04x", (UBYTE)(mAUDIO_3_WAVESHAPER & 0xff), mSystem.mCpu->GetPC());
 			return (UBYTE)(mAUDIO_3_WAVESHAPER & 0xff);
 			break;
 		case (AUD3TBACK & 0xff):
+			TRACE_MIKIE2("Peek(AUD3TBACK,%02x) at PC=%04x", (UBYTE)mAUDIO_3_BKUP, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_3_BKUP;
 			break;
 		case (AUD3CTL & 0xff):
@@ -1529,10 +1657,12 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mAUDIO_3_ENABLE_COUNT) ? 0x08 : 0x00;
 				retval |= (mAUDIO_3_WAVESHAPER & 0x001000) ? 0x80 : 0x00;
 				retval |= mAUDIO_3_LINKING;
+				TRACE_MIKIE2("Peek(AUD3CTL,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
 		case (AUD3COUNT & 0xff):
+			TRACE_MIKIE2("Peek(AUD3COUNT,%02x) at PC=%04x", (UBYTE)mAUDIO_3_CURRENT, mSystem.mCpu->GetPC());
 			return (UBYTE)mAUDIO_3_CURRENT;
 			break;
 		case (AUD3MISC & 0xff):
@@ -1542,6 +1672,7 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mAUDIO_3_BORROW_IN) ? 0x02 : 0x00;
 				retval |= (mAUDIO_3_LAST_CLOCK) ? 0x08 : 0x00;
 				retval |= (mAUDIO_3_WAVESHAPER >> 4) & 0xf0;
+				TRACE_MIKIE2("Peek(AUD3MISC,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return retval;
 			}
 			break;
@@ -1551,9 +1682,11 @@ UBYTE CMikie::Peek(ULONG addr)
 		case (ATTEN_C & 0xff):
 		case (ATTEN_D & 0xff):
 		case (MPAN & 0xff):
+			TRACE_MIKIE1("Peek(ATTEN_A/B/C/D/MPAN) at PC=%04x", mSystem.mCpu->GetPC());
 			break;
 
 		case (MSTEREO & 0xff):
+			TRACE_MIKIE2("Peek(MSTEREO,%02x) at PC=%04x", (UBYTE)mSTEREO ^ 0xff, mSystem.mCpu->GetPC());
 			return (UBYTE) mSTEREO ^ 0xff;
 			break;
 
@@ -1568,16 +1701,18 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mUART_Rx_framing_error) ? 0x04 : 0x00;				// Rx overrun
 				retval |= (mUART_RX_DATA&UART_BREAK_CODE) ? 0x02 : 0x00;		// Indicate break received
 				retval |= (mUART_RX_DATA & 0x0100) ? 0x01 : 0x00;				// Add parity bit
+				TRACE_MIKIE2("Peek(SERCTL  ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return (UBYTE)retval;
 			}
 			break;
 
-		case (SERDAT&0xff):
-			mUART_RX_COUNTDOWN=0xffffffff;		// This will clear the Rx data ready
-			return (UBYTE)mUART_DATA;
+		case (SERDAT & 0xff):
+			mUART_RX_READY = 0;
+			TRACE_MIKIE2("Peek(SERDAT  ,%02x) at PC=%04x", (UBYTE)mUART_RX_DATA, mSystem.mCpu->GetPC());
+			return (UBYTE)(mUART_RX_DATA & 0xff);
 			break;
 
-		case (IODAT&0xff): 
+		case (IODAT & 0xff):
 			{
 				ULONG retval = 0;
 				retval |= (mIODIR&0x10) ? mIODAT & 0x10 : 0x10;									// IODIR  = output bit : input high (eeprom write done)
@@ -1585,29 +1720,36 @@ UBYTE CMikie::Peek(ULONG addr)
 				retval |= (mIODIR&0x04) ? mIODAT & 0x04 : ((mUART_CABLE_PRESENT) ? 0x04 : 0x00);	// NOEXP  = output bit : input low
 				retval |= (mIODIR&0x02) ? mIODAT & 0x02 : 0x00;									// CARTAD = output bit : input low
 				retval |= (mIODIR&0x01) ? mIODAT & 0x01 : 0x01;									// EXTPW  = output bit : input high (Power connected)
+				TRACE_MIKIE2("Peek(IODAT   ,%02x) at PC=%04x", retval, mSystem.mCpu->GetPC());
 				return (UBYTE)retval;
 			}
 			break;
 
 		case (INTRST & 0xff):
 		case (INTSET & 0xff):
+			TRACE_MIKIE2("Peek(INTSET  ,%02x) at PC=%04x", mTimerStatusFlags, mSystem.mCpu->GetPC());
 			return (UBYTE)mTimerStatusFlags;
 			break;
 
 		case (MAGRDY0 & 0xff):
 		case (MAGRDY1 & 0xff):
+			TRACE_MIKIE2("Peek(MAGRDY0/1,%02x) at PC=%04x", 0x00, mSystem.mCpu->GetPC());
 			return 0x00;
 			break;
 
 		case (AUDIN & 0xff):
-			if (mAudioInputComparator) return 0x80; else return 0x00;
+//			TRACE_MIKIE2("Peek(AUDIN,%02x) at PC=%04x", mAudioInputComparator ? 0x80 : 0x00, mSystem.mCpu->GetPC());
+//			if (mAudioInputComparator) return 0x80; else return 0x00;
+			TRACE_MIKIE2("Peek(AUDIN,%02x) at PC=%04x", 0x80, mSystem.mCpu->GetPC());
+			return 0x80;
 			break;
 
 		case (MIKEYHREV & 0xff):
+			TRACE_MIKIE2("Peek(MIKEYHREV,%02x) at PC=%04x", 0x01, mSystem.mCpu->GetPC());
 			return 0x01;
 			break;
 
-// Pallette registers
+// Palette registers
 
 		case (GREEN0 & 0xff):
 		case (GREEN1 & 0xff):
@@ -1625,6 +1767,7 @@ UBYTE CMikie::Peek(ULONG addr)
 		case (GREEND & 0xff):
 		case (GREENE & 0xff):
 		case (GREENF & 0xff):
+			TRACE_MIKIE2("Peek(GREENPAL0-F,%02x) at PC=%04x",mPalette[addr & 0x0f].Colours.Green,mSystem.mCpu->GetPC());
 			return mPalette[addr & 0x0f].Colours.Green;
 			break;
 
@@ -1644,6 +1787,7 @@ UBYTE CMikie::Peek(ULONG addr)
 		case (BLUEREDD & 0xff):
 		case (BLUEREDE & 0xff):
 		case (BLUEREDF & 0xff):
+			TRACE_MIKIE2("Peek(BLUEREDPAL0-F,%02x) at PC=%04x", (mPalette[addr & 0x0f].Colours.Red | (mPalette[addr & 0x0f].Colours.Blue << 4)), mSystem.mCpu->GetPC());
 			return (mPalette[addr & 0x0f].Colours.Red | (mPalette[addr & 0x0f].Colours.Blue << 4));
 			break;
 
@@ -1652,8 +1796,10 @@ UBYTE CMikie::Peek(ULONG addr)
 		// For easier debugging
 
 		case (DISPADRL & 0xff):
+			TRACE_MIKIE2("Peek(DISPADRL,%02x) at PC=%04x", (UBYTE)(mDisplayAddress & 0xff), mSystem.mCpu->GetPC());
 			return (UBYTE)(mDisplayAddress & 0xff);
 		case (DISPADRH & 0xff):
+			TRACE_MIKIE2("Peek(DISPADRH,%02x) at PC=%04x", (UBYTE)(mDisplayAddress >> 8) & 0xff, mSystem.mCpu->GetPC());
 			return (UBYTE)(mDisplayAddress >> 8) & 0xff;
 
 		case (DISPCTL & 0xff):
@@ -1666,20 +1812,1176 @@ UBYTE CMikie::Peek(ULONG addr)
 		case (Mtest0 & 0xff):
 		case (Mtest1 & 0xff):
 		case (Mtest2 & 0xff):
-//			_RPT2(_CRT_WARN, "CMikie::Peek(%04x) - Peek from write only register location at time %d\n",addr,gSystemCycleCount);
+			TRACE_MIKIE2("Peek(%04x) - Peek from write only register location at PC=$%04x", addr, mSystem.mCpu->GetPC());
 			break;
 
 // Register to let programs know handy is running
 
 		case (0xfd97 & 0xff):
+			TRACE_MIKIE2("Peek(%04x) - **** HANDY DETECT ATTEMPTED **** at PC=$%04x", addr, mSystem.mCpu->GetPC());
 			return 0x42;
 			break;
 
 // Errors on illegal location accesses
 
 		default:
-//			_RPT2(_CRT_WARN, "CMikie::Peek(%04x) - Peek from illegal location at time %d\n",addr,gSystemCycleCount);
+			TRACE_MIKIE2("Peek(%04x) - Peek from illegal location at PC=$%04x", addr, mSystem.mCpu->GetPC());
 			break;
 	}
 	return 0xff;
+}
+
+void CMikie::Update(void)
+{
+	int divide = 0;
+	int decval = 0;
+	ULONG tmp;
+	ULONG mikie_work_done=0;
+
+	//
+	// To stop problems with cycle count wrap we will check and then correct the
+	// cycle counter.
+	//
+
+	if (gSystemCycleCount > 0xf0000000) {
+		gSystemCycleCount -= 0x80000000;
+		gAudioLastUpdateCycle -= 0x80000000;
+		mTIM_0_LAST_COUNT -= 0x80000000;
+		mTIM_1_LAST_COUNT -= 0x80000000;
+		mTIM_2_LAST_COUNT -= 0x80000000;
+		mTIM_3_LAST_COUNT -= 0x80000000;
+		mTIM_4_LAST_COUNT -= 0x80000000;
+		mTIM_5_LAST_COUNT -= 0x80000000;
+		mTIM_6_LAST_COUNT -= 0x80000000;
+		mTIM_7_LAST_COUNT -= 0x80000000;
+		mAUDIO_0_LAST_COUNT -= 0x80000000;
+		mAUDIO_1_LAST_COUNT -= 0x80000000;
+		mAUDIO_2_LAST_COUNT -= 0x80000000;
+		mAUDIO_3_LAST_COUNT -= 0x80000000;
+		// Only correct if sleep is active
+		if (gSuzieDoneTime) {
+			gSuzieDoneTime -= 0x80000000;
+		}
+	}
+
+	gNextTimerEvent = 0xffffffff;
+
+	//
+	// Check if the CPU needs to be woken up from sleep mode
+	//
+	if (gSuzieDoneTime) {
+		if (gSystemCycleCount >= gSuzieDoneTime) {
+			ClearCPUSleep();
+			gSuzieDoneTime=0;
+		}
+		else {
+			if (gSuzieDoneTime > gSystemCycleCount) gNextTimerEvent = gSuzieDoneTime;
+		}
+	}
+
+	//	Timer updates, rolled out flat in group order
+	//
+	//	Group A:
+	//	Timer 0 -> Timer 2 -> Timer 4.
+	//
+	//	Group B:
+	//	Timer 1 -> Timer 3 -> Timer 5 -> Timer 7 -> Audio 0 -> Audio 1-> Audio 2 -> Audio 3 -> Timer 1.
+	//
+
+	//
+	// Within each timer code block we will predict the cycle count number of
+	// the next timer event
+	//
+	// We don't need to count linked timers as the timer they are linked
+	// from will always generate earlier events.
+	//
+	// As Timer 4 (UART) will generate many events we will ignore it
+	//
+	// We set the next event to the end of time at first and let the timers
+	// overload it. Any writes to timer controls will force next event to
+	// be immediate and hence a new preidction will be done. The prediction
+	// causes overflow as opposed to zero i.e. current+1
+	// (In reality T0 line counter should always be running.)
+	//
+
+	//
+	// Timer 0 of Group A
+	//
+
+	//
+	// Optimisation, assume T0 (Line timer) is never in one-shot,
+	// never placed in link mode
+	//
+
+	// KW bugfix 13/4/99 added (mTIM_x_ENABLE_RELOAD ||  ..)
+//	if(mTIM_0_ENABLE_COUNT && (mTIM_0_ENABLE_RELOAD || !mTIM_0_TIMER_DONE))
+	if (mTIM_0_ENABLE_COUNT) {
+		// Timer 0 has no linking
+//		if (mTIM_0_LINKING != 0x07)
+		{
+			// Ordinary clocked mode as opposed to linked mode
+			// 16MHz clock downto 1us == cyclecount >> 4
+			divide = (4+mTIM_0_LINKING);
+			decval = (gSystemCycleCount - mTIM_0_LAST_COUNT) >> divide;
+
+			if (decval) {
+				mTIM_0_LAST_COUNT += decval << divide;
+				mTIM_0_CURRENT -= decval;
+
+				if (mTIM_0_CURRENT&0x80000000) {
+					// Set carry out
+					mTIM_0_BORROW_OUT = TRUE;
+
+//					// Reload if neccessary
+//					if (mTIM_0_ENABLE_RELOAD) {
+						mTIM_0_CURRENT += mTIM_0_BKUP+1;
+//					}
+//					else {
+//						mTIM_0_CURRENT = 0;
+//					}
+
+					mTIM_0_TIMER_DONE = TRUE;
+
+					// Interupt flag setting code moved into DisplayRenderLine()
+
+					// Line timer has expired, render a line, we cannot incrememnt
+					// the global counter at this point as it will screw the other timers
+					// so we save under work done and inc at the end.
+					mikie_work_done += DisplayRenderLine();
+
+				}
+				else {
+					mTIM_0_BORROW_OUT = FALSE;
+				}
+				// Set carry in as we did a count
+				mTIM_0_BORROW_IN = TRUE;
+			}
+			else {
+				// Clear carry in as we didn't count
+				mTIM_0_BORROW_IN = FALSE;
+				// Clear carry out
+				mTIM_0_BORROW_OUT = FALSE;
+			}
+		}
+
+		// Prediction for next timer event cycle number
+
+//		if(mTIM_0_LINKING != 7)
+		{
+			// Sometimes timeupdates can be >2x rollover in which case
+			// then CURRENT may still be negative and we can use it to
+			// calc the next timer value, we just want another update ASAP
+			tmp = (mTIM_0_CURRENT & 0x80000000) ? 1 : ((mTIM_0_CURRENT+1)<<divide);
+			tmp += gSystemCycleCount;
+			if (tmp < gNextTimerEvent) {
+				gNextTimerEvent = tmp;
+//				TRACE_MIKIE1("Update() - TIMER 0 Set NextTimerEvent = %012d",gNextTimerEvent);
+			}
+		}
+//		TRACE_MIKIE1("Update() - mTIM_0_CURRENT = %012d",mTIM_0_CURRENT);
+//		TRACE_MIKIE1("Update() - mTIM_0_BKUP    = %012d",mTIM_0_BKUP);
+//		TRACE_MIKIE1("Update() - mTIM_0_LASTCNT = %012d",mTIM_0_LAST_COUNT);
+//		TRACE_MIKIE1("Update() - mTIM_0_LINKING = %012d",mTIM_0_LINKING);
+	}
+
+	//
+	// Timer 2 of Group A
+	//
+
+	//
+	// Optimisation, assume T2 (Frame timer) is never in one-shot
+	// always in linked mode i.e clocked by Line Timer
+	//
+
+	// KW bugfix 13/4/99 added (mTIM_x_ENABLE_RELOAD ||  ..)
+//	if (mTIM_2_ENABLE_COUNT && (mTIM_2_ENABLE_RELOAD || !mTIM_2_TIMER_DONE))
+	if (mTIM_2_ENABLE_COUNT) {
+		decval = 0;
+
+//		if (mTIM_2_LINKING == 0x07)
+		{
+			if (mTIM_0_BORROW_OUT) decval = 1;
+			mTIM_2_LAST_LINK_CARRY = mTIM_0_BORROW_OUT;
+		}
+//		else {
+//			// Ordinary clocked mode as opposed to linked mode
+//			// 16MHz clock downto 1us == cyclecount >> 4
+//			divide = (4 + mTIM_2_LINKING);
+//			decval = (gSystemCycleCount - mTIM_2_LAST_COUNT) >> divide;
+//		}
+
+		if (decval) {
+//					mTIM_2_LAST_COUNT += decval << divide;
+			mTIM_2_CURRENT -= decval;
+			if (mTIM_2_CURRENT & 0x80000000) {
+				// Set carry out
+				mTIM_2_BORROW_OUT = TRUE;
+
+//				// Reload if neccessary
+//				if (mTIM_2_ENABLE_RELOAD) {
+					mTIM_2_CURRENT += mTIM_2_BKUP+1;
+//				}
+//				else {
+//					mTIM_2_CURRENT = 0;
+//				}
+				mTIM_2_TIMER_DONE = TRUE;
+
+				// Interupt flag setting code moved into DisplayEndOfFrame(), also
+				// park any CPU cycles lost for later inclusion
+				mikie_work_done += DisplayEndOfFrame();
+			}
+			else {
+				mTIM_2_BORROW_OUT = FALSE;
+			}
+			// Set carry in as we did a count
+			mTIM_2_BORROW_IN = TRUE;
+		}
+		else {
+			// Clear carry in as we didn't count
+			mTIM_2_BORROW_IN = FALSE;
+			// Clear carry out
+			mTIM_2_BORROW_OUT = FALSE;
+		}
+
+		// Prediction for next timer event cycle number
+// We dont need to predict this as its the frame timer and will always
+// be beaten by the line timer on Timer 0
+//		if (mTIM_2_LINKING != 7) {
+//			tmp = gSystemCycleCount + ((mTIM_2_CURRENT + 1) << divide);
+//			if (tmp < gNextTimerEvent) gNextTimerEvent = tmp;
+//		}
+//		TRACE_MIKIE1("Update() - mTIM_2_CURRENT = %012d",mTIM_2_CURRENT);
+//		TRACE_MIKIE1("Update() - mTIM_2_BKUP    = %012d",mTIM_2_BKUP);
+//		TRACE_MIKIE1("Update() - mTIM_2_LASTCNT = %012d",mTIM_2_LAST_COUNT);
+//		TRACE_MIKIE1("Update() - mTIM_2_LINKING = %012d",mTIM_2_LINKING);
+	}
+
+	//
+	// Timer 4 of Group A
+	//
+	// For the sake of speed it is assumed that Timer 4 (UART timer)
+	// never uses one-shot mode, never uses linking, hence the code
+	// is commented out. Timer 4 is at the end of a chain and seems
+	// no reason to update its carry in-out variables
+	//
+
+	// KW bugfix 13/4/99 added (mTIM_x_ENABLE_RELOAD ||  ..)
+//	if (mTIM_4_ENABLE_COUNT && (mTIM_4_ENABLE_RELOAD || !mTIM_4_TIMER_DONE))
+	if (mTIM_4_ENABLE_COUNT) {
+		decval = 0;
+
+//		if (mTIM_4_LINKING == 0x07) {
+//			if (mTIM_2_BORROW_OUT && !mTIM_4_LAST_LINK_CARRY) decval = 1;
+//			if (mTIM_2_BORROW_OUT) decval = 1;
+//			mTIM_4_LAST_LINK_CARRY = mTIM_2_BORROW_OUT;
+//		}
+//		else
+		{
+			// Ordinary clocked mode as opposed to linked mode
+			// 16MHz clock downto 1us == cyclecount >> 4
+			// Additional /8 (+3) for 8 clocks per bit transmit
+			divide = 4 + 3 + mTIM_4_LINKING;
+			decval = (gSystemCycleCount - mTIM_4_LAST_COUNT) >> divide;
+		}
+
+		if (decval) {
+			mTIM_4_LAST_COUNT += decval << divide;
+			mTIM_4_CURRENT -= decval;
+			if (mTIM_4_CURRENT & 0x80000000) {
+				// Set carry out
+				mTIM_4_BORROW_OUT = TRUE;
+
+				//
+				// Update the UART counter models for Rx & Tx
+				//
+
+				//
+				// According to the docs IRQ's are level triggered and hence will always assert
+				// what a pain in the arse
+				//
+				// Rx & Tx are loopedback due to comlynx structure
+
+				//
+				// Receive
+				//
+				if (!mUART_RX_COUNTDOWN) {
+					// Fetch a byte from the input queue
+					if (mUART_Rx_waiting > 0) {
+						mUART_RX_DATA = mUART_Rx_input_queue[mUART_Rx_output_ptr];
+						mUART_Rx_output_ptr = (mUART_Rx_output_ptr + 1) % UART_MAX_RX_QUEUE;
+						mUART_Rx_waiting--;
+						TRACE_MIKIE2("Update() - RX Byte output ptr=%02d waiting=%02d", mUART_Rx_output_ptr, mUART_Rx_waiting);
+					}
+					else {
+						TRACE_MIKIE0("Update() - RX Byte but no data waiting ????");
+					}
+
+					// Retrigger input if more bytes waiting
+					if (mUART_Rx_waiting > 0) {
+						mUART_RX_COUNTDOWN = UART_RX_TIME_PERIOD + UART_RX_NEXT_DELAY;
+						TRACE_MIKIE1("Update() - RX Byte retriggered, %d waiting", mUART_Rx_waiting);
+					}
+					else {
+						mUART_RX_COUNTDOWN = UART_RX_INACTIVE;
+						TRACE_MIKIE0("Update() - RX Byte nothing waiting, deactivated");
+					}
+
+					// If RX_READY already set then we have an overrun
+					// as previous byte hasnt been read
+					if (mUART_RX_READY) mUART_Rx_overun_error = 1;
+
+					// Flag byte as being recvd
+					mUART_RX_READY = 1;
+				}
+				else if(!(mUART_RX_COUNTDOWN&UART_RX_INACTIVE)) {
+					mUART_RX_COUNTDOWN--;
+				}
+
+				if (!mUART_TX_COUNTDOWN) {
+					if (mUART_SENDBREAK) {
+						mUART_TX_DATA = UART_BREAK_CODE;
+						// Auto-Respawn new transmit
+						mUART_TX_COUNTDOWN = UART_TX_TIME_PERIOD;
+						// Loop back what we transmitted
+						ComLynxTxLoopback(mUART_TX_DATA);
+					}
+					else {
+						// Serial activity finished
+						mUART_TX_COUNTDOWN = UART_TX_INACTIVE;
+					}
+
+					// If a networking object is attached then use its callback to send the data byte.
+					if (mpUART_TX_CALLBACK) {
+						TRACE_MIKIE0("Update() - UART_TX_CALLBACK");
+						(*mpUART_TX_CALLBACK)(mUART_TX_DATA, mUART_TX_CALLBACK_OBJECT);
+					}
+
+				}
+				else if (!(mUART_TX_COUNTDOWN&UART_TX_INACTIVE)) {
+					mUART_TX_COUNTDOWN--;
+				}
+
+				// Set the timer status flag
+				// Timer 4 is the uart timer and doesn't generate IRQ's using this method
+
+				// 16 Clocks = 1 bit transmission. Hold separate Rx & Tx counters
+
+				// Reload if neccessary
+//				if (mTIM_4_ENABLE_RELOAD) {
+					mTIM_4_CURRENT += mTIM_4_BKUP + 1;
+					// The low reload values on TIM4 coupled with a longer
+					// timer service delay can sometimes cause
+					// an underun, check and fix
+					if (mTIM_4_CURRENT & 0x80000000) {
+						mTIM_4_CURRENT = mTIM_4_BKUP;
+						mTIM_4_LAST_COUNT = gSystemCycleCount;
+					}
+//				}
+//				else {
+//					mTIM_4_CURRENT = 0;
+//				}
+//				mTIM_4_TIMER_DONE = TRUE;
+			}
+//			else {
+//				mTIM_4_BORROW_OUT = FALSE;
+//			}
+//			// Set carry in as we did a count
+//			mTIM_4_BORROW_IN = TRUE;
+		}
+//		else {
+//			// Clear carry in as we didn't count
+//			mTIM_4_BORROW_IN = FALSE;
+//			// Clear carry out
+//			mTIM_4_BORROW_OUT = FALSE;
+//		}
+//
+//		// Prediction for next timer event cycle number
+//
+//		if (mTIM_4_LINKING != 7) {
+			// Sometimes timeupdates can be >2x rollover in which case
+			// then CURRENT may still be negative and we can use it to
+			// calc the next timer value, we just want another update ASAP
+			tmp = (mTIM_4_CURRENT&0x80000000)?1:((mTIM_4_CURRENT+1)<<divide);
+			tmp += gSystemCycleCount;
+			if (tmp < gNextTimerEvent) {
+				gNextTimerEvent = tmp;
+				TRACE_MIKIE1("Update() - TIMER 4 Set NextTimerEvent = %012d", gNextTimerEvent);
+			}
+//		}
+//		TRACE_MIKIE1("Update() - mTIM_4_CURRENT = %012d",mTIM_4_CURRENT);
+//		TRACE_MIKIE1("Update() - mTIM_4_BKUP    = %012d",mTIM_4_BKUP);
+//		TRACE_MIKIE1("Update() - mTIM_4_LASTCNT = %012d",mTIM_4_LAST_COUNT);
+//		TRACE_MIKIE1("Update() - mTIM_4_LINKING = %012d",mTIM_4_LINKING);
+	}
+
+	// Emulate the UART bug where UART IRQ is level sensitive
+	// in that it will continue to generate interrupts as long
+	// as they are enabled and the interrupt condition is true
+
+	// If Tx is inactive i.e ready for a byte to eat and the
+	// IRQ is enabled then generate it always
+	if ((mUART_TX_COUNTDOWN & UART_TX_INACTIVE) && mUART_TX_IRQ_ENABLE) {
+		TRACE_MIKIE0("Update() - UART TX IRQ Triggered");
+		mTimerStatusFlags |= 0x10;
+	}
+	// Is data waiting and the interrupt enabled, if so then
+	// what are we waiting for....
+	if (mUART_RX_READY && mUART_RX_IRQ_ENABLE) {
+		TRACE_MIKIE0("Update() - UART RX IRQ Triggered");
+		mTimerStatusFlags |= 0x10;
+	}
+
+	//
+	// Timer 1 of Group B
+	//
+	// KW bugfix 13/4/99 added (mTIM_x_ENABLE_RELOAD ||  ..)
+	if (mTIM_1_ENABLE_COUNT && (mTIM_1_ENABLE_RELOAD || !mTIM_1_TIMER_DONE)) {
+		if (mTIM_1_LINKING != 0x07) {
+			// Ordinary clocked mode as opposed to linked mode
+			// 16MHz clock downto 1us == cyclecount >> 4
+			divide = (4 + mTIM_1_LINKING);
+			decval = (gSystemCycleCount - mTIM_1_LAST_COUNT) >> divide;
+
+			if (decval) {
+				mTIM_1_LAST_COUNT += decval << divide;
+				mTIM_1_CURRENT -= decval;
+				if (mTIM_1_CURRENT & 0x80000000) {
+					// Set carry out
+					mTIM_1_BORROW_OUT = TRUE;
+
+					// Set the timer status flag
+					if (mTimerInterruptMask & 0x02) {
+						TRACE_MIKIE0("Update() - TIMER1 IRQ Triggered");
+						mTimerStatusFlags |= 0x02;
+					}
+
+					// Reload if neccessary
+					if (mTIM_1_ENABLE_RELOAD) {
+						mTIM_1_CURRENT += mTIM_1_BKUP + 1;
+					}
+					else {
+						mTIM_1_CURRENT = 0;
+					}
+					mTIM_1_TIMER_DONE = TRUE;
+				}
+				else {
+					mTIM_1_BORROW_OUT = FALSE;
+				}
+				// Set carry in as we did a count
+				mTIM_1_BORROW_IN = TRUE;
+			}
+			else {
+				// Clear carry in as we didn't count
+				mTIM_1_BORROW_IN = FALSE;
+				// Clear carry out
+				mTIM_1_BORROW_OUT = FALSE;
+			}
+		}
+
+		// Prediction for next timer event cycle number
+
+		if (mTIM_1_LINKING != 7) {
+			// Sometimes timeupdates can be >2x rollover in which case
+			// then CURRENT may still be negative and we can use it to
+			// calc the next timer value, we just want another update ASAP
+			tmp = (mTIM_1_CURRENT & 0x80000000) ? 1 : ((mTIM_1_CURRENT + 1) << divide);
+			tmp += gSystemCycleCount;
+			if (tmp < gNextTimerEvent) {
+				gNextTimerEvent = tmp;
+				TRACE_MIKIE1("Update() - TIMER 1 Set NextTimerEvent = %012d", gNextTimerEvent);
+			}
+		}
+//		TRACE_MIKIE1("Update() - mTIM_1_CURRENT = %012d",mTIM_1_CURRENT);
+//		TRACE_MIKIE1("Update() - mTIM_1_BKUP    = %012d",mTIM_1_BKUP);
+//		TRACE_MIKIE1("Update() - mTIM_1_LASTCNT = %012d",mTIM_1_LAST_COUNT);
+//		TRACE_MIKIE1("Update() - mTIM_1_LINKING = %012d",mTIM_1_LINKING);
+	}
+
+	//
+	// Timer 3 of Group A
+	//
+	// KW bugfix 13/4/99 added (mTIM_x_ENABLE_RELOAD ||  ..)
+	if (mTIM_3_ENABLE_COUNT && (mTIM_3_ENABLE_RELOAD || !mTIM_3_TIMER_DONE)) {
+		decval = 0;
+
+		if (mTIM_3_LINKING == 0x07) {
+			if (mTIM_1_BORROW_OUT) decval = 1;
+			mTIM_3_LAST_LINK_CARRY = mTIM_1_BORROW_OUT;
+		}
+		else {
+			// Ordinary clocked mode as opposed to linked mode
+			// 16MHz clock downto 1us == cyclecount >> 4
+			divide = (4 + mTIM_3_LINKING);
+			decval = (gSystemCycleCount - mTIM_3_LAST_COUNT) >> divide;
+		}
+
+		if (decval) {
+			mTIM_3_LAST_COUNT += decval << divide;
+			mTIM_3_CURRENT -= decval;
+			if (mTIM_3_CURRENT & 0x80000000) {
+				// Set carry out
+				mTIM_3_BORROW_OUT = TRUE;
+
+				// Set the timer status flag
+				if (mTimerInterruptMask & 0x08) {
+					TRACE_MIKIE0("Update() - TIMER3 IRQ Triggered");
+					mTimerStatusFlags |= 0x08;
+				}
+
+				// Reload if neccessary
+				if (mTIM_3_ENABLE_RELOAD) {
+					mTIM_3_CURRENT += mTIM_3_BKUP + 1;
+				}
+				else {
+					mTIM_3_CURRENT = 0;
+				}
+				mTIM_3_TIMER_DONE = TRUE;
+			}
+			else {
+				mTIM_3_BORROW_OUT = FALSE;
+			}
+			// Set carry in as we did a count
+			mTIM_3_BORROW_IN = TRUE;
+		}
+		else {
+			// Clear carry in as we didn't count
+			mTIM_3_BORROW_IN = FALSE;
+			// Clear carry out
+			mTIM_3_BORROW_OUT = FALSE;
+		}
+
+		// Prediction for next timer event cycle number
+
+		if (mTIM_3_LINKING != 7) {
+			// Sometimes timeupdates can be >2x rollover in which case
+			// then CURRENT may still be negative and we can use it to
+			// calc the next timer value, we just want another update ASAP
+			tmp = (mTIM_3_CURRENT & 0x80000000) ? 1 : ((mTIM_3_CURRENT + 1) << divide);
+			tmp += gSystemCycleCount;
+			if (tmp < gNextTimerEvent) {
+				gNextTimerEvent = tmp;
+				TRACE_MIKIE1("Update() - TIMER 3 Set NextTimerEvent = %012d", gNextTimerEvent);
+			}
+		}
+//		TRACE_MIKIE1("Update() - mTIM_3_CURRENT = %012d",mTIM_3_CURRENT);
+//		TRACE_MIKIE1("Update() - mTIM_3_BKUP    = %012d",mTIM_3_BKUP);
+//		TRACE_MIKIE1("Update() - mTIM_3_LASTCNT = %012d",mTIM_3_LAST_COUNT);
+//		TRACE_MIKIE1("Update() - mTIM_3_LINKING = %012d",mTIM_3_LINKING);
+	}
+
+	//
+	// Timer 5 of Group A
+	//
+	// KW bugfix 13/4/99 added (mTIM_x_ENABLE_RELOAD ||  ..)
+	if (mTIM_5_ENABLE_COUNT && (mTIM_5_ENABLE_RELOAD || !mTIM_5_TIMER_DONE)) {
+		decval = 0;
+
+		if (mTIM_5_LINKING == 0x07) {
+			if (mTIM_3_BORROW_OUT) decval = 1;
+			mTIM_5_LAST_LINK_CARRY = mTIM_3_BORROW_OUT;
+		}
+		else {
+			// Ordinary clocked mode as opposed to linked mode
+			// 16MHz clock downto 1us == cyclecount >> 4
+			divide = (4 + mTIM_5_LINKING);
+			decval = (gSystemCycleCount - mTIM_5_LAST_COUNT) >> divide;
+		}
+
+		if (decval) {
+			mTIM_5_LAST_COUNT += decval<<divide;
+			mTIM_5_CURRENT -= decval;
+			if (mTIM_5_CURRENT & 0x80000000) {
+				// Set carry out
+				mTIM_5_BORROW_OUT = TRUE;
+
+				// Set the timer status flag
+				if (mTimerInterruptMask & 0x20) {
+					TRACE_MIKIE0("Update() - TIMER5 IRQ Triggered");
+					mTimerStatusFlags |= 0x20;
+				}
+
+				// Reload if neccessary
+				if (mTIM_5_ENABLE_RELOAD) {
+					mTIM_5_CURRENT += mTIM_5_BKUP + 1;
+				}
+				else {
+					mTIM_5_CURRENT = 0;
+				}
+				mTIM_5_TIMER_DONE = TRUE;
+			}
+			else {
+				mTIM_5_BORROW_OUT = FALSE;
+			}
+			// Set carry in as we did a count
+			mTIM_5_BORROW_IN = TRUE;
+		}
+		else {
+			// Clear carry in as we didn't count
+			mTIM_5_BORROW_IN = FALSE;
+			// Clear carry out
+			mTIM_5_BORROW_OUT = FALSE;
+		}
+
+		// Prediction for next timer event cycle number
+
+		if (mTIM_5_LINKING != 7) {
+			// Sometimes timeupdates can be >2x rollover in which case
+			// then CURRENT may still be negative and we can use it to
+			// calc the next timer value, we just want another update ASAP
+			tmp = (mTIM_5_CURRENT & 0x80000000) ? 1 : ((mTIM_5_CURRENT + 1) << divide);
+			tmp += gSystemCycleCount;
+			if (tmp < gNextTimerEvent) {
+				gNextTimerEvent = tmp;
+				TRACE_MIKIE1("Update() - TIMER 5 Set NextTimerEvent = %012d", gNextTimerEvent);
+			}
+		}
+//		TRACE_MIKIE1("Update() - mTIM_5_CURRENT = %012d",mTIM_5_CURRENT);
+//		TRACE_MIKIE1("Update() - mTIM_5_BKUP    = %012d",mTIM_5_BKUP);
+//		TRACE_MIKIE1("Update() - mTIM_5_LASTCNT = %012d",mTIM_5_LAST_COUNT);
+//		TRACE_MIKIE1("Update() - mTIM_5_LINKING = %012d",mTIM_5_LINKING);
+	}
+
+	//
+	// Timer 7 of Group A
+	//
+	// KW bugfix 13/4/99 added (mTIM_x_ENABLE_RELOAD ||  ..)
+	if (mTIM_7_ENABLE_COUNT && (mTIM_7_ENABLE_RELOAD || !mTIM_7_TIMER_DONE)) {
+		decval = 0;
+
+		if (mTIM_7_LINKING == 0x07) {
+			if (mTIM_5_BORROW_OUT) decval = 1;
+			mTIM_7_LAST_LINK_CARRY = mTIM_5_BORROW_OUT;
+		}
+		else {
+			// Ordinary clocked mode as opposed to linked mode
+			// 16MHz clock downto 1us == cyclecount >> 4
+			divide = (4 + mTIM_7_LINKING);
+			decval = (gSystemCycleCount - mTIM_7_LAST_COUNT) >> divide;
+		}
+
+		if (decval) {
+			mTIM_7_LAST_COUNT += decval << divide;
+			mTIM_7_CURRENT -= decval;
+			if (mTIM_7_CURRENT & 0x80000000) {
+				// Set carry out
+				mTIM_7_BORROW_OUT = TRUE;
+
+				// Set the timer status flag
+				if (mTimerInterruptMask & 0x80) {
+					TRACE_MIKIE0("Update() - TIMER7 IRQ Triggered");
+					mTimerStatusFlags |= 0x80;
+				}
+
+				// Reload if neccessary
+				if (mTIM_7_ENABLE_RELOAD) {
+					mTIM_7_CURRENT += mTIM_7_BKUP + 1;
+				}
+				else {
+					mTIM_7_CURRENT = 0;
+				}
+				mTIM_7_TIMER_DONE = TRUE;
+			}
+			else {
+				mTIM_7_BORROW_OUT = FALSE;
+			}
+			// Set carry in as we did a count
+			mTIM_7_BORROW_IN = TRUE;
+		}
+		else {
+			// Clear carry in as we didn't count
+			mTIM_7_BORROW_IN = FALSE;
+			// Clear carry out
+			mTIM_7_BORROW_OUT = FALSE;
+		}
+
+		// Prediction for next timer event cycle number
+
+		if (mTIM_7_LINKING != 7) {
+			// Sometimes timeupdates can be >2x rollover in which case
+			// then CURRENT may still be negative and we can use it to
+			// calc the next timer value, we just want another update ASAP
+			tmp = (mTIM_7_CURRENT & 0x80000000) ? 1 : ((mTIM_7_CURRENT + 1) << divide);
+			tmp += gSystemCycleCount;
+			if (tmp < gNextTimerEvent) {
+				gNextTimerEvent = tmp;
+				TRACE_MIKIE1("Update() - TIMER 7 Set NextTimerEvent = %012d", gNextTimerEvent);
+			}
+		}
+//		TRACE_MIKIE1("Update() - mTIM_7_CURRENT = %012d",mTIM_7_CURRENT);
+//		TRACE_MIKIE1("Update() - mTIM_7_BKUP    = %012d",mTIM_7_BKUP);
+//		TRACE_MIKIE1("Update() - mTIM_7_LASTCNT = %012d",mTIM_7_LAST_COUNT);
+//		TRACE_MIKIE1("Update() - mTIM_7_LINKING = %012d",mTIM_7_LINKING);
+	}
+
+	//
+	// Timer 6 has no group
+	//
+	// KW bugfix 13/4/99 added (mTIM_x_ENABLE_RELOAD ||  ..)
+	if (mTIM_6_ENABLE_COUNT && (mTIM_6_ENABLE_RELOAD || !mTIM_6_TIMER_DONE)) {
+//		if (mTIM_6_LINKING != 0x07)
+		{
+			// Ordinary clocked mode as opposed to linked mode
+			// 16MHz clock downto 1us == cyclecount >> 4
+			divide = (4 + mTIM_6_LINKING);
+			decval = (gSystemCycleCount - mTIM_6_LAST_COUNT) >> divide;
+
+			if (decval) {
+				mTIM_6_LAST_COUNT += decval << divide;
+				mTIM_6_CURRENT -= decval;
+				if (mTIM_6_CURRENT & 0x80000000) {
+					// Set carry out
+					mTIM_6_BORROW_OUT = TRUE;
+
+					// Set the timer status flag
+					if (mTimerInterruptMask & 0x40) {
+						TRACE_MIKIE0("Update() - TIMER6 IRQ Triggered");
+						mTimerStatusFlags |= 0x40;
+					}
+
+					// Reload if neccessary
+					if (mTIM_6_ENABLE_RELOAD) {
+						mTIM_6_CURRENT += mTIM_6_BKUP + 1;
+					}
+					else {
+						mTIM_6_CURRENT = 0;
+					}
+					mTIM_6_TIMER_DONE = TRUE;
+				}
+				else {
+					mTIM_6_BORROW_OUT = FALSE;
+				}
+				// Set carry in as we did a count
+				mTIM_6_BORROW_IN = TRUE;
+			}
+			else {
+				// Clear carry in as we didn't count
+				mTIM_6_BORROW_IN = FALSE;
+				// Clear carry out
+				mTIM_6_BORROW_OUT = FALSE;
+			}
+		}
+
+		// Prediction for next timer event cycle number
+		// (Timer 6 doesn't support linking)
+
+//		if (mTIM_6_LINKING != 7)
+		{
+			// Sometimes timeupdates can be >2x rollover in which case
+			// then CURRENT may still be negative and we can use it to
+			// calc the next timer value, we just want another update ASAP
+			tmp = (mTIM_6_CURRENT & 0x80000000) ? 1 : ((mTIM_6_CURRENT + 1) << divide);
+			tmp += gSystemCycleCount;
+			if (tmp < gNextTimerEvent) {
+				gNextTimerEvent = tmp;
+				TRACE_MIKIE1("Update() - TIMER 6 Set NextTimerEvent = %012d", gNextTimerEvent);
+			}
+		}
+//		TRACE_MIKIE1("Update() - mTIM_6_CURRENT = %012d",mTIM_6_CURRENT);
+//		TRACE_MIKIE1("Update() - mTIM_6_BKUP    = %012d",mTIM_6_BKUP);
+//		TRACE_MIKIE1("Update() - mTIM_6_LASTCNT = %012d",mTIM_6_LAST_COUNT);
+//		TRACE_MIKIE1("Update() - mTIM_6_LINKING = %012d",mTIM_6_LINKING);
+	}
+
+	//
+	// If sound is enabled then update the sound subsystem
+	//
+	if (gAudioEnabled) {
+//		static SLONG sample = 0;
+		// ULONG mix = 0; // unused
+
+		//
+		// Catch audio buffer up to current time
+		//
+
+		// Mix the sample
+
+		/*
+		sample = 0;
+		if (mSTEREO & 0x11) { sample += mAUDIO_0_OUTPUT; mix++; }
+		if (mSTEREO & 0x22) { sample += mAUDIO_1_OUTPUT; mix++; }
+		if (mSTEREO & 0x44) { sample += mAUDIO_2_OUTPUT; mix++; }
+		if (mSTEREO & 0x88) { sample += mAUDIO_3_OUTPUT; mix++; }
+		if (mix) {
+			sample += 128 * mix; // Correct for sign
+			sample /= mix;	// Keep the audio volume at max
+		}
+		else {
+			sample = 128;
+		}
+
+//		sample += (mSTEREO & 0x11) ? mAUDIO_0_OUTPUT : 0;
+//		sample += (mSTEREO & 0x22) ? mAUDIO_1_OUTPUT : 0;
+//		sample += (mSTEREO & 0x44) ? mAUDIO_2_OUTPUT : 0;
+//		sample += (mSTEREO & 0x88) ? mAUDIO_3_OUTPUT : 0;
+//		sample = sample >> 2;
+//		sample += 128;
+		*/
+
+		for (;gAudioLastUpdateCycle+HANDY_AUDIO_SAMPLE_PERIOD<gSystemCycleCount;gAudioLastUpdateCycle+=HANDY_AUDIO_SAMPLE_PERIOD) {
+			// Output audio sample
+//			gAudioBuffer[gAudioBufferPointer++] = (UBYTE)sample;
+			gAudioBuffer0[gAudioBufferPointer] = (mSTEREO & 0x11) ? mAUDIO_0_OUTPUT : 0;
+			gAudioBuffer1[gAudioBufferPointer] = (mSTEREO & 0x22) ? mAUDIO_1_OUTPUT : 0;
+			gAudioBuffer2[gAudioBufferPointer] = (mSTEREO & 0x33) ? mAUDIO_2_OUTPUT : 0;
+			gAudioBuffer3[gAudioBufferPointer++] = (mSTEREO & 0x44) ? mAUDIO_3_OUTPUT : 0;
+
+			// Check buffer overflow condition, stick at the endpoint
+			// teh audio output system will reset the input pointer
+			// when it reads out the data.
+
+			// We should NEVER overflow, this buffer holds 0.25 seconds
+			// of data if this happens the the multimedia system above
+			// has failed so the corruption of the buffer contents wont matter
+
+			gAudioBufferPointer%=HANDY_AUDIO_BUFFER_SIZE;
+		}
+
+		//
+		// Audio 0
+		//
+//		if (mAUDIO_0_ENABLE_COUNT && !mAUDIO_0_TIMER_DONE && mAUDIO_0_VOLUME && mAUDIO_0_BKUP)
+		if (mAUDIO_0_ENABLE_COUNT && (mAUDIO_0_ENABLE_RELOAD || !mAUDIO_0_TIMER_DONE) && mAUDIO_0_VOLUME && mAUDIO_0_BKUP) {
+			decval = 0;
+
+			if (mAUDIO_0_LINKING == 0x07) {
+				if (mTIM_7_BORROW_OUT) decval = 1;
+				mAUDIO_0_LAST_LINK_CARRY = mTIM_7_BORROW_OUT;
+			}
+			else {
+				// Ordinary clocked mode as opposed to linked mode
+				// 16MHz clock downto 1us == cyclecount >> 4
+				divide = (4 + mAUDIO_0_LINKING);
+				decval = (gSystemCycleCount - mAUDIO_0_LAST_COUNT) >> divide;
+			}
+
+			if (decval) {
+				mAUDIO_0_LAST_COUNT += decval << divide;
+				mAUDIO_0_CURRENT -= decval;
+				if (mAUDIO_0_CURRENT & 0x80000000) {
+					// Set carry out
+					mAUDIO_0_BORROW_OUT = TRUE;
+
+					// Reload if neccessary
+					if (mAUDIO_0_ENABLE_RELOAD) {
+						mAUDIO_0_CURRENT += mAUDIO_0_BKUP + 1;
+						if (mAUDIO_0_CURRENT & 0x80000000) mAUDIO_0_CURRENT = 0;
+					}
+					else {
+						// Set timer done
+						mAUDIO_0_TIMER_DONE = TRUE;
+						mAUDIO_0_CURRENT = 0;
+					}
+
+					//
+					// Update audio circuitry
+					//
+					mAUDIO_0_WAVESHAPER = GetLfsrNext(mAUDIO_0_WAVESHAPER);
+
+					if (mAUDIO_0_INTEGRATE_ENABLE) {
+						SLONG temp = mAUDIO_0_OUTPUT;
+						if (mAUDIO_0_WAVESHAPER & 0x0001) temp += mAUDIO_0_VOLUME; else temp -= mAUDIO_0_VOLUME;
+						if (temp > 127) temp = 127;
+						if (temp <- 128) temp = -128;
+						mAUDIO_0_OUTPUT = (SBYTE)temp;
+					}
+					else {
+						if (mAUDIO_0_WAVESHAPER & 0x0001) mAUDIO_0_OUTPUT = mAUDIO_0_VOLUME; else mAUDIO_0_OUTPUT = -mAUDIO_0_VOLUME;
+					}
+				}
+				else {
+					mAUDIO_0_BORROW_OUT = FALSE;
+				}
+				// Set carry in as we did a count
+				mAUDIO_0_BORROW_IN = TRUE;
+			}
+			else {
+				// Clear carry in as we didn't count
+				mAUDIO_0_BORROW_IN = FALSE;
+				// Clear carry out
+				mAUDIO_0_BORROW_OUT = FALSE;
+			}
+
+			// Prediction for next timer event cycle number
+
+			if (mAUDIO_0_LINKING != 7) {
+				// Sometimes timeupdates can be >2x rollover in which case
+				// then CURRENT may still be negative and we can use it to
+				// calc the next timer value, we just want another update ASAP
+				tmp = (mAUDIO_0_CURRENT&0x80000000) ? 1 : ((mAUDIO_0_CURRENT + 1) << divide);
+				tmp += gSystemCycleCount;
+				if (tmp < gNextTimerEvent) {
+					gNextTimerEvent = tmp;
+					TRACE_MIKIE1("Update() - AUDIO 0 Set NextTimerEvent = %012d", gNextTimerEvent);
+				}
+			}
+//			TRACE_MIKIE1("Update() - mAUDIO_0_CURRENT = %012d",mAUDIO_0_CURRENT);
+//			TRACE_MIKIE1("Update() - mAUDIO_0_BKUP    = %012d",mAUDIO_0_BKUP);
+//			TRACE_MIKIE1("Update() - mAUDIO_0_LASTCNT = %012d",mAUDIO_0_LAST_COUNT);
+//			TRACE_MIKIE1("Update() - mAUDIO_0_LINKING = %012d",mAUDIO_0_LINKING);
+		}
+
+		//
+		// Audio 1
+		//
+//		if (mAUDIO_1_ENABLE_COUNT && !mAUDIO_1_TIMER_DONE && mAUDIO_1_VOLUME && mAUDIO_1_BKUP)
+		if (mAUDIO_1_ENABLE_COUNT && (mAUDIO_1_ENABLE_RELOAD || !mAUDIO_1_TIMER_DONE) && mAUDIO_1_VOLUME && mAUDIO_1_BKUP) {
+			decval = 0;
+
+			if (mAUDIO_1_LINKING == 0x07) {
+				if (mAUDIO_0_BORROW_OUT) decval = 1;
+				mAUDIO_1_LAST_LINK_CARRY = mAUDIO_0_BORROW_OUT;
+			}
+			else {
+				// Ordinary clocked mode as opposed to linked mode
+				// 16MHz clock downto 1us == cyclecount >> 4
+				divide = (4 + mAUDIO_1_LINKING);
+				decval = (gSystemCycleCount - mAUDIO_1_LAST_COUNT) >> divide;
+			}
+
+			if (decval) {
+				mAUDIO_1_LAST_COUNT += decval<<divide;
+				mAUDIO_1_CURRENT -= decval;
+				if (mAUDIO_1_CURRENT & 0x80000000) {
+					// Set carry out
+					mAUDIO_1_BORROW_OUT = TRUE;
+
+					// Reload if neccessary
+					if (mAUDIO_1_ENABLE_RELOAD) {
+						mAUDIO_1_CURRENT += mAUDIO_1_BKUP+1;
+						if (mAUDIO_1_CURRENT & 0x80000000) mAUDIO_1_CURRENT = 0;
+					}
+					else {
+						// Set timer done
+						mAUDIO_1_TIMER_DONE = TRUE;
+						mAUDIO_1_CURRENT = 0;
+					}
+
+					//
+					// Update audio circuitry
+					//
+					mAUDIO_1_WAVESHAPER = GetLfsrNext(mAUDIO_1_WAVESHAPER);
+
+					if (mAUDIO_1_INTEGRATE_ENABLE) {
+						SLONG temp = mAUDIO_1_OUTPUT;
+						if (mAUDIO_1_WAVESHAPER & 0x0001) temp += mAUDIO_1_VOLUME; else temp -= mAUDIO_1_VOLUME;
+						if (temp > 127) temp = 127;
+						if (temp < -128) temp = -128;
+						mAUDIO_1_OUTPUT = (SBYTE)temp;
+					}
+					else {
+						if (mAUDIO_1_WAVESHAPER & 0x0001) mAUDIO_1_OUTPUT = mAUDIO_1_VOLUME; else mAUDIO_1_OUTPUT = -mAUDIO_1_VOLUME;
+					}
+				}
+				else {
+					mAUDIO_1_BORROW_OUT = FALSE;
+				}
+				// Set carry in as we did a count
+				mAUDIO_1_BORROW_IN = TRUE;
+			}
+			else {
+				// Clear carry in as we didn't count
+				mAUDIO_1_BORROW_IN = FALSE;
+				// Clear carry out
+				mAUDIO_1_BORROW_OUT = FALSE;
+			}
+
+			// Prediction for next timer event cycle number
+
+			if (mAUDIO_1_LINKING != 7) {
+				// Sometimes timeupdates can be >2x rollover in which case
+				// then CURRENT may still be negative and we can use it to
+				// calc the next timer value, we just want another update ASAP
+				tmp = (mAUDIO_1_CURRENT & 0x80000000) ? 1 : ((mAUDIO_1_CURRENT + 1) << divide);
+				tmp += gSystemCycleCount;
+				if (tmp < gNextTimerEvent) {
+					gNextTimerEvent = tmp;
+					TRACE_MIKIE1("Update() - AUDIO 1 Set NextTimerEvent = %012d", gNextTimerEvent);
+				}
+			}
+//			TRACE_MIKIE1("Update() - mAUDIO_1_CURRENT = %012d",mAUDIO_1_CURRENT);
+//			TRACE_MIKIE1("Update() - mAUDIO_1_BKUP    = %012d",mAUDIO_1_BKUP);
+//			TRACE_MIKIE1("Update() - mAUDIO_1_LASTCNT = %012d",mAUDIO_1_LAST_COUNT);
+//			TRACE_MIKIE1("Update() - mAUDIO_1_LINKING = %012d",mAUDIO_1_LINKING);
+		}
+
+		//
+		// Audio 2
+		//
+//		if (mAUDIO_2_ENABLE_COUNT && !mAUDIO_2_TIMER_DONE && mAUDIO_2_VOLUME && mAUDIO_2_BKUP)
+		if (mAUDIO_2_ENABLE_COUNT && (mAUDIO_2_ENABLE_RELOAD || !mAUDIO_2_TIMER_DONE) && mAUDIO_2_VOLUME && mAUDIO_2_BKUP) {
+			decval = 0;
+
+			if (mAUDIO_2_LINKING == 0x07) {
+				if (mAUDIO_1_BORROW_OUT) decval = 1;
+				mAUDIO_2_LAST_LINK_CARRY = mAUDIO_1_BORROW_OUT;
+			}
+			else {
+				// Ordinary clocked mode as opposed to linked mode
+				// 16MHz clock downto 1us == cyclecount >> 4
+				divide = (4 + mAUDIO_2_LINKING);
+				decval = (gSystemCycleCount - mAUDIO_2_LAST_COUNT) >> divide;
+			}
+
+			if (decval) {
+				mAUDIO_2_LAST_COUNT += decval<<divide;
+				mAUDIO_2_CURRENT -= decval;
+				if (mAUDIO_2_CURRENT & 0x80000000) {
+					// Set carry out
+					mAUDIO_2_BORROW_OUT = TRUE;
+
+					// Reload if neccessary
+					if (mAUDIO_2_ENABLE_RELOAD) {
+						mAUDIO_2_CURRENT += mAUDIO_2_BKUP + 1;
+						if (mAUDIO_2_CURRENT & 0x80000000) mAUDIO_2_CURRENT = 0;
+					}
+					else {
+						// Set timer done
+						mAUDIO_2_TIMER_DONE = TRUE;
+						mAUDIO_2_CURRENT = 0;
+					}
+
+					//
+					// Update audio circuitry
+					//
+					mAUDIO_2_WAVESHAPER = GetLfsrNext(mAUDIO_2_WAVESHAPER);
+
+					if (mAUDIO_2_INTEGRATE_ENABLE) {
+						SLONG temp = mAUDIO_2_OUTPUT;
+						if (mAUDIO_2_WAVESHAPER&0x0001) temp += mAUDIO_2_VOLUME; else temp -= mAUDIO_2_VOLUME;
+						if (temp > 127) temp = 127;
+						if (temp < -128) temp = -128;
+						mAUDIO_2_OUTPUT = (SBYTE)temp;
+					}
+					else {
+						if (mAUDIO_2_WAVESHAPER & 0x0001) mAUDIO_2_OUTPUT = mAUDIO_2_VOLUME; else mAUDIO_2_OUTPUT = -mAUDIO_2_VOLUME;
+					}
+				}
+				else {
+					mAUDIO_2_BORROW_OUT = FALSE;
+				}
+				// Set carry in as we did a count
+				mAUDIO_2_BORROW_IN = TRUE;
+			}
+			else {
+				// Clear carry in as we didn't count
+				mAUDIO_2_BORROW_IN = FALSE;
+				// Clear carry out
+				mAUDIO_2_BORROW_OUT = FALSE;
+			}
+
+			// Prediction for next timer event cycle number
+
+			if (mAUDIO_2_LINKING != 7) {
+				// Sometimes timeupdates can be >2x rollover in which case
+				// then CURRENT may still be negative and we can use it to
+				// calc the next timer value, we just want another update ASAP
+				tmp = (mAUDIO_2_CURRENT & 0x80000000) ? 1 : ((mAUDIO_2_CURRENT + 1) << divide);
+				tmp += gSystemCycleCount;
+				if (tmp < gNextTimerEvent) {
+					gNextTimerEvent = tmp;
+					TRACE_MIKIE1("Update() - AUDIO 2 Set NextTimerEvent = %012d", gNextTimerEvent);
+				}
+			}
+//			TRACE_MIKIE1("Update() - mAUDIO_2_CURRENT = %012d",mAUDIO_2_CURRENT);
+//			TRACE_MIKIE1("Update() - mAUDIO_2_BKUP    = %012d",mAUDIO_2_BKUP);
+//			TRACE_MIKIE1("Update() - mAUDIO_2_LASTCNT = %012d",mAUDIO_2_LAST_COUNT);
+//			TRACE_MIKIE1("Update() - mAUDIO_2_LINKING = %012d",mAUDIO_2_LINKING);
+		}
+
+		//
+		// Audio 3
+		//
+//		if (mAUDIO_3_ENABLE_COUNT && !mAUDIO_3_TIMER_DONE && mAUDIO_3_VOLUME && mAUDIO_3_BKUP)
+		if (mAUDIO_3_ENABLE_COUNT && (mAUDIO_3_ENABLE_RELOAD || !mAUDIO_3_TIMER_DONE) && mAUDIO_3_VOLUME && mAUDIO_3_BKUP) {
+			decval = 0;
+
+			if (mAUDIO_3_LINKING == 0x07) {
+				if (mAUDIO_2_BORROW_OUT) decval = 1;
+				mAUDIO_3_LAST_LINK_CARRY = mAUDIO_2_BORROW_OUT;
+			}
+			else {
+				// Ordinary clocked mode as opposed to linked mode
+				// 16MHz clock downto 1us == cyclecount >> 4
+				divide = (4 + mAUDIO_3_LINKING);
+				decval = (gSystemCycleCount - mAUDIO_3_LAST_COUNT) >> divide;
+			}
+
+			if (decval) {
+				mAUDIO_3_LAST_COUNT += decval << divide;
+				mAUDIO_3_CURRENT -= decval;
+				if (mAUDIO_3_CURRENT & 0x80000000) {
+					// Set carry out
+					mAUDIO_3_BORROW_OUT = TRUE;
+
+					// Reload if neccessary
+					if (mAUDIO_3_ENABLE_RELOAD) {
+						mAUDIO_3_CURRENT += mAUDIO_3_BKUP + 1;
+						if (mAUDIO_3_CURRENT & 0x80000000) mAUDIO_3_CURRENT = 0;
+					}
+					else {
+						// Set timer done
+						mAUDIO_3_TIMER_DONE = TRUE;
+						mAUDIO_3_CURRENT = 0;
+					}
+
+					//
+					// Update audio circuitry
+					//
+					mAUDIO_3_WAVESHAPER = GetLfsrNext(mAUDIO_3_WAVESHAPER);
+
+					if (mAUDIO_3_INTEGRATE_ENABLE) {
+						SLONG temp = mAUDIO_3_OUTPUT;
+						if (mAUDIO_3_WAVESHAPER & 0x0001) temp += mAUDIO_3_VOLUME; else temp -= mAUDIO_3_VOLUME;
+						if (temp > 127) temp = 127;
+						if (temp < -128) temp = -128;
+						mAUDIO_3_OUTPUT = (SBYTE)temp;
+					}
+					else {
+						if (mAUDIO_3_WAVESHAPER & 0x0001) mAUDIO_3_OUTPUT = mAUDIO_3_VOLUME; else mAUDIO_3_OUTPUT = -mAUDIO_3_VOLUME;
+					}
+				}
+				else {
+					mAUDIO_3_BORROW_OUT = FALSE;
+				}
+				// Set carry in as we did a count
+				mAUDIO_3_BORROW_IN = TRUE;
+			}
+			else {
+				// Clear carry in as we didn't count
+				mAUDIO_3_BORROW_IN = FALSE;
+				// Clear carry out
+				mAUDIO_3_BORROW_OUT = FALSE;
+			}
+
+			// Prediction for next timer event cycle number
+
+			if (mAUDIO_3_LINKING != 7) {
+				// Sometimes timeupdates can be >2x rollover in which case
+				// then CURRENT may still be negative and we can use it to
+				// calc the next timer value, we just want another update ASAP
+				tmp = (mAUDIO_3_CURRENT & 0x80000000) ? 1 : ((mAUDIO_3_CURRENT + 1) << divide);
+				tmp += gSystemCycleCount;
+				if (tmp < gNextTimerEvent) {
+					gNextTimerEvent = tmp;
+					TRACE_MIKIE1("Update() - AUDIO 3 Set NextTimerEvent = %012d", gNextTimerEvent);
+				}
+			}
+//			TRACE_MIKIE1("Update() - mAUDIO_3_CURRENT = %012d",mAUDIO_3_CURRENT);
+//			TRACE_MIKIE1("Update() - mAUDIO_3_BKUP    = %012d",mAUDIO_3_BKUP);
+//			TRACE_MIKIE1("Update() - mAUDIO_3_LASTCNT = %012d",mAUDIO_3_LAST_COUNT);
+//			TRACE_MIKIE1("Update() - mAUDIO_3_LINKING = %012d",mAUDIO_3_LINKING);
+		}
+	}
+
+//	if (gSystemCycleCount == gNextTimerEvent) gError->Warning("CMikie::Update() - gSystemCycleCount==gNextTimerEvent, system lock likely");
+//	TRACE_MIKIE1("Update() - NextTimerEvent = %012d",gNextTimerEvent);
+
+	gSystemIRQ = (mTimerStatusFlags) ? true : false;
+	mSystem.setIrqPin(gSystemIRQ);
+	if (gSystemIRQ && gSystemCPUSleep) { ClearCPUSleep(); }
+
+	// Now all the timer updates are done we can increment the system
+	// counter for any work done within the Update() function, gSystemCycleCounter
+	// cannot be updated until this point otherwise it screws up the counters.
+	gSystemCycleCount += mikie_work_done;
 }

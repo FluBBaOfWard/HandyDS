@@ -15,7 +15,7 @@ extern "C" void GpMain(void *args);
 
 const char *romfile = "LYNXBOOT.IMG";
 
-ULONG		mColourMap[4096];
+ULONG mColourMap[4096];
 unsigned short vram[2][160*102];
 unsigned short *currentDest;
 int bufIdx = 0;
@@ -90,6 +90,7 @@ void GpDelete() {
 
 void GpMain(void *args) {
 
+	int hazard = 0;
 	while (newsystem != NULL) {
 
 		for (int i=0;i<1024;i++) {
@@ -97,7 +98,8 @@ void GpMain(void *args) {
 		}
 		newsystem->SetButtonData( joy0_R() );
 
-		if (gScreenUpdateRequired) {
+		hazard += 1;
+		if (gScreenUpdateRequired || hazard > 30) {
 			gScreenUpdateRequired = FALSE;
 			return;
 		}

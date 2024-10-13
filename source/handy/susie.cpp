@@ -49,16 +49,13 @@
 //#include <crtdbg.h>
 //#define TRACE_SUSIE
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include "system.h"
 #include "susie.h"
 #include "lynxdef.h"
 
 //
 // As the Susie sprite engine only ever sees system RAM
-// wa can access this directly without the hassle of
+// we can access this directly without the hassle of
 // going through the system object, much faster
 //
 #define RAM_PEEK(m)				(mRamPointer[(m)])
@@ -164,6 +161,18 @@ void CSusie::Reset(void)
 	mEVERON = FALSE;
 
 	for (int loop=0;loop<16;loop++) mPenIndex[loop] = loop;
+
+	mLineType = 0;
+	mLineShiftRegCount = 0;
+	mLineShiftReg = 0;
+	mLineRepeatCount = 0;
+	mLinePixel = 0;
+	mLinePacketBitsLeft = 0;
+	mCollision = 0;
+	mLineBaseAddress = 0;
+	mLineCollisionAddress = 0;
+
+	hquadoff = vquadoff = 0;
 
 	mJOYSTICK.Byte = 0;
 	mSWITCHES.Byte = 0;
@@ -462,9 +471,9 @@ ULONG CSusie::PaintSprites(void)
 			// Setup screen start end variables
 
 			int screen_h_start = (SWORD)mHOFF.Word;
-			int screen_h_end = (SWORD)mHOFF.Word+LYNX_SCREEN_WIDTH;
+			int screen_h_end = (SWORD)mHOFF.Word + LYNX_SCREEN_WIDTH;
 			int screen_v_start = (SWORD)mVOFF.Word;
-			int screen_v_end = (SWORD)mVOFF.Word+LYNX_SCREEN_HEIGHT;
+			int screen_v_end = (SWORD)mVOFF.Word + LYNX_SCREEN_HEIGHT;
 
 			int world_h_mid = screen_h_start + 0x8000 + (LYNX_SCREEN_WIDTH / 2);
 			int world_v_mid = screen_v_start + 0x8000 + (LYNX_SCREEN_HEIGHT / 2);
@@ -481,16 +490,15 @@ ULONG CSusie::PaintSprites(void)
 				if (mSPRCTL1_StartUp) quadrant = 2; else quadrant = 3;
 			}
 			else {
-				if(mSPRCTL1_StartUp) quadrant = 1; else quadrant = 0;
+				if (mSPRCTL1_StartUp) quadrant = 1; else quadrant = 0;
 			}
 			TRACE_SUSIE1("PaintSprites() Quadrant=%d", quadrant);
 
-			// Check ref is inside screen area
-
+			// Check ref is inside screen area. !! This is commented out in Mednafen!!
 			if ((SWORD)mHPOSSTRT.Word<screen_h_start || (SWORD)mHPOSSTRT.Word>=screen_h_end ||
 				(SWORD)mVPOSSTRT.Word<screen_v_start || (SWORD)mVPOSSTRT.Word>=screen_v_end) superclip = TRUE;
 
-			TRACE_SUSIE1("PaintSprites() Superclip=%d", superclip);
+			TRACE_SUSIE1("PaintSprites() Superclip=%d",superclip);
 
 
 			// Quadrant mapping is:	SE	NE	NW	SW
@@ -521,10 +529,10 @@ ULONG CSusie::PaintSprites(void)
 
 // Preflip		TRACE_SUSIE2("PaintSprites() hsign=%d vsign=%d",hsign,vsign);
 
-				// Use h/v flip to invert v/hsign
+				// Use h/v flip to invert h/vsign
 
-				if (mSPRCTL0_Vflip) vsign =- vsign;
-				if (mSPRCTL0_Hflip) hsign =- hsign;
+				if (mSPRCTL0_Vflip) vsign = -vsign;
+				if (mSPRCTL0_Hflip) hsign = -hsign;
 
 				TRACE_SUSIE2("PaintSprites() Hflip=%d Vflip=%d", mSPRCTL0_Hflip, mSPRCTL0_Vflip);
 				TRACE_SUSIE2("PaintSprites() Hsign=%d   Vsign=%d", hsign, vsign);
@@ -555,14 +563,16 @@ ULONG CSusie::PaintSprites(void)
 					// the hflip, vflip bits & negative tilt to be able to work correctly
 					//
 					int	modquad = quadrant;
-					static int vquadflip[4] = {1,0,3,2};
-					static int hquadflip[4] = {3,2,1,0};
+					static const int vquadflip[4] = {1,0,3,2};
+					static const int hquadflip[4] = {3,2,1,0};
 
 					if (mSPRCTL0_Vflip) modquad = vquadflip[modquad];
 					if (mSPRCTL0_Hflip) modquad = hquadflip[modquad];
 
-// This is causing Eurosoccer to fail!!
-//					if (enable_tilt && mTILT.Word & 0x8000) modquad = hquadflip[modquad];
+					// This is causing Eurosoccer to fail!!
+					//if (enable_tilt && mTILT.Word & 0x8000) modquad = hquadflip[modquad];
+					//if (quadrant == 0 && sprite_v == 219 && sprite_h == 890)
+					//printf("%d:%d %d %d\n", quadrant, modquad, sprite_h, sprite_v);
 
 					switch(modquad)
 					{
@@ -589,14 +599,12 @@ ULONG CSusie::PaintSprites(void)
 
 				TRACE_SUSIE1("PaintSprites() Render status %d", render);
 
-				static int pixel_height = 0;
-				static int pixel_width = 0;
-				static int pixel = 0;
-				static int hoff = 0, voff = 0;
-				static int hloop = 0, vloop = 0;
-				static bool onscreen = 0;
-				static int vquadoff = 0;
-				static int hquadoff = 0;
+				int pixel_height;
+				int pixel_width;
+				int pixel;
+				int hoff,voff;
+				int hloop,vloop;
+				bool onscreen;
 
 				if (render) {
 					// Set the vertical position & offset
@@ -657,7 +665,7 @@ ULONG CSusie::PaintSprites(void)
 								// get offset by 1 pixel in the other direction, this
 								// fixes the squashed look on the multi-quad sprites.
 //								if (hsign == -1 && loop > 0) hoff += hsign;
-								if (loop ==0)	hquadoff = hsign;
+								if (loop ==0) hquadoff = hsign;
 								if (hsign != hquadoff) hoff += hsign;
 
 								// Initialise our line
@@ -985,7 +993,6 @@ inline void CSusie::ProcessPixel(ULONG hoff, ULONG pixel)
 			}
 			break;
 		default:
-//			_asm int 3;
 			break;
 	}
 }
@@ -993,7 +1000,7 @@ inline void CSusie::ProcessPixel(ULONG hoff, ULONG pixel)
 inline void CSusie::WritePixel(ULONG hoff, ULONG pixel)
 {
 	ULONG scr_addr = mLineBaseAddress + (hoff / 2);
-	
+
 	UBYTE dest = RAM_PEEK(scr_addr);
 	if (!(hoff & 0x01)) {
 		// Upper nibble screen write
@@ -1014,7 +1021,7 @@ inline void CSusie::WritePixel(ULONG hoff, ULONG pixel)
 inline ULONG CSusie::ReadPixel(ULONG hoff)
 {
 	ULONG scr_addr = mLineBaseAddress + (hoff / 2);
-	
+
 	ULONG data = RAM_PEEK(scr_addr);
 	if (!(hoff & 0x01)) {
 		// Upper nibble read
@@ -1033,8 +1040,8 @@ inline ULONG CSusie::ReadPixel(ULONG hoff)
 
 inline void CSusie::WriteCollision(ULONG hoff, ULONG pixel)
 {
-	ULONG col_addr = mLineCollisionAddress + (hoff / 2);
-	
+	ULONG col_addr=mLineCollisionAddress+(hoff/2);
+
 	UBYTE dest = RAM_PEEK(col_addr);
 	if (!(hoff & 0x01)) {
 		// Upper nibble screen write
@@ -1055,7 +1062,7 @@ inline void CSusie::WriteCollision(ULONG hoff, ULONG pixel)
 inline ULONG CSusie::ReadCollision(ULONG hoff)
 {
 	ULONG col_addr = mLineCollisionAddress + (hoff / 2);
-	
+
 	ULONG data = RAM_PEEK(col_addr);
 	if (!(hoff & 0x01)) {
 		// Upper nibble read
@@ -1136,8 +1143,7 @@ inline ULONG CSusie::LineGetPixel()
 		}
 
 		// Pixel store is empty what should we do
-		switch(mLineType)
-		{
+		switch (mLineType) {
 			case line_abs_literal:
 				// This means end of line for us
 				mLinePixel = LINE_END;
@@ -1150,7 +1156,7 @@ inline ULONG CSusie::LineGetPixel()
 			case line_packed:
 				//
 				// From reading in between the lines only a packed line with
-				// a zero size i.e 0b00000 as a header is allowable as a packet end
+				// a zero size i.e 0b0000 as a header is allowable as a packet end
 				//
 				mLineRepeatCount = LineGetBits(4);
 				if (!mLineRepeatCount) {
@@ -1169,12 +1175,11 @@ inline ULONG CSusie::LineGetPixel()
 	if (mLinePixel != LINE_END) {
 		mLineRepeatCount--;
 
-		switch(mLineType)
-		{
+		switch(mLineType) {
 			case line_abs_literal:
 				mLinePixel = LineGetBits(mSPRCTL0_PixelBits);
 				// Check the special case of a zero in the last pixel
-				if(!mLineRepeatCount && !mLinePixel)
+				if (!mLineRepeatCount && !mLinePixel)
 					mLinePixel = LINE_END;
 				else
 					mLinePixel = mPenIndex[mLinePixel];
@@ -1201,7 +1206,8 @@ inline ULONG CSusie::LineGetBits(ULONG bits)
 
 	// Only return data IF there is enought bits left in the packet
 
-	if (mLinePacketBitsLeft < bits) return 0;
+	//if (mLinePacketBitsLeft < bits) return 0;
+	if (mLinePacketBitsLeft <= bits) return 0;	// Hardware bug(<= instead of <), apparently
 
 	// Make sure shift reg has enough bits to fulfil the request
 
@@ -1376,7 +1382,7 @@ void CSusie::Poke(ULONG addr, UBYTE data)
 			break;
 		case (TILTH & 0xff):
 			mTILT.Byte.High = data;
-			TRACE_SUSIE2("Poke(TILTH,%02x) at PC=$%04x",data,mSystem.mCpu->GetPC());
+			TRACE_SUSIE2("Poke(TILTH,%02x) at PC=$%04x", data, mSystem.mCpu->GetPC());
 			break;
 		case (SPRDOFFL & 0xff):
 			TRACE_SUSIE2("Poke(SPRDOFFL,%02x) at PC=$%04x", data, mSystem.mCpu->GetPC());
@@ -1905,9 +1911,7 @@ UBYTE CSusie::Peek(ULONG addr)
 		case (SPRSYS & 0xff):
 			retval = 0x0000;
 			//	retval += (mSPRSYS_Status) ? 0x0001 : 0x0000;
-			// Use gSystemCPUSleep to signal the status instead, if we are asleep then
-			// we must be rendering sprites
-			retval += (gSystemCPUSleep) ? 0x0001 : 0x0000;
+			retval += (gSuzieDoneTime) ? 0x0001 : 0x0000;
 			retval += (mSPRSYS_StopOnCurrent) ? 0x0002 : 0x0000;
 			retval += (mSPRSYS_UnsafeAccess) ? 0x0004 : 0x0000;
 			retval += (mSPRSYS_LeftHand) ? 0x0008 : 0x0000;

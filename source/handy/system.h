@@ -48,8 +48,7 @@
 #ifdef SYSTEM_CPP
 	ULONG	gSystemCycleCount = 0;
 	ULONG	gNextTimerEvent = 0;
-	ULONG	gCPUWakeupTime = 0;
-	ULONG	gIRQEntryCycle = 0;
+	ULONG	gSuzieDoneTime = 0;
 	ULONG	gCPUBootAddress = 0;
 	ULONG	gSingleStepModeSprites = FALSE;
 	BOOL	gEmulatorAbort = FALSE;
@@ -79,8 +78,7 @@
 
 	extern ULONG	gSystemCycleCount;
 	extern ULONG	gNextTimerEvent;
-	extern ULONG	gCPUWakeupTime;
-	extern ULONG	gIRQEntryCycle;
+	extern ULONG	gSuzieDoneTime;
 	extern ULONG	gCPUBootAddress;
 	extern ULONG	gSingleStepModeSprites;
 	extern BOOL		gEmulatorAbort;
@@ -159,7 +157,13 @@ class CSystem : public CSystemBase
 			//
 			// Step the processor through 1 instruction
 			//
-			mCpu->Update();
+			if (!gSystemCPUSleep) {
+				mCpu->Update();
+			}
+			// If the CPU is asleep then skip to the next timer event
+			else {
+				gSystemCycleCount = gNextTimerEvent;
+			}
 
 #ifdef _LYNXDBG
 			// Check breakpoint
@@ -219,9 +223,7 @@ class CSystem : public CSystemBase
 
 // Low level CPU access
 
-		void	SetRegs(C6502_REGS &regs) {mCpu->SetRegs(regs);};
-		void	GetRegs(C6502_REGS &regs) {mCpu->GetRegs(regs);};
-//		void	SetCPUBreakpoint(ULONG breakpoint) {mCpu->SetBreakpoint(breakpoint);};
+		void setIrqPin(int state) {mCpu->setIrqPin(state);};
 
 // Mikey system interfacing
 

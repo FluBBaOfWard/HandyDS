@@ -11,7 +11,7 @@
 #include "io.h"
 #include "cpu.h"
 
-#define EMUVERSION "V0.0.1 2024-10-12"
+#define EMUVERSION "V0.0.1 2024-10-13"
 
 static void gammaChange(void);
 static void paletteChange(void);
